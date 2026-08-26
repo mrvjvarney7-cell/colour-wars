@@ -27,11 +27,78 @@
     }
   }
 
+  // Tests that hand-build a mid-game board are simulating players who have
+  // already opened, so clear the per-player opening-move bonus for them.
+  function midGame(state) {
+    state.players.forEach(function (p) { p.hasMoved = true; });
+    return state;
+  }
+
   test('corner has critical mass 2', function () {
     assertEqual(GL.getCriticalMass(0, 0, 7, 7), 2);
     assertEqual(GL.getCriticalMass(0, 6, 7, 7), 2);
     assertEqual(GL.getCriticalMass(6, 0, 7, 7), 2);
     assertEqual(GL.getCriticalMass(6, 6, 7, 7), 2);
+  });
+
+  // Direct per-corner assertions, including the reported top-right corner.
+  test('each corner individually returns critical mass exactly 2 on a 7x7 board', function () {
+    assertEqual(GL.getCriticalMass(0, 0, 7, 7), 2, 'top-left (0,0)');
+    assertEqual(GL.getCriticalMass(0, 6, 7, 7), 2, 'TOP-RIGHT (0,6)');
+    assertEqual(GL.getCriticalMass(6, 0, 7, 7), 2, 'bottom-left (6,0)');
+    assertEqual(GL.getCriticalMass(6, 6, 7, 7), 2, 'bottom-right (6,6)');
+    assertEqual(GL.getNeighbors(0, 6, 7, 7).length, 2, 'top-right must have exactly 2 neighbours');
+  });
+
+  test('every corner detonates on its 2nd directly-placed dot, never a 3rd', function () {
+    [[0, 0], [0, 6], [6, 0], [6, 6]].forEach(function (p) {
+      var board = GL.createEmptyBoard(7, 7);
+      var first = GL.applyMove(board, p[0], p[1], 0, 7, 7);
+      assertEqual(first.board[p[0]][p[1]].count, 1, 'corner ' + p + ' after 1st dot');
+      assertEqual(first.steps.length, 0, 'corner ' + p + ' must not explode on 1 dot');
+      var second = GL.applyMove(first.board, p[0], p[1], 0, 7, 7);
+      assertEqual(second.steps.length, 1, 'corner ' + p + ' must explode on the 2nd dot');
+      assertEqual(second.board[p[0]][p[1]].count, 0, 'corner ' + p + ' drains on explosion');
+      assertEqual(second.board[p[0]][p[1]].owner, null);
+    });
+  });
+
+  // Documents why a corner can be SEEN holding 3 dots even though its critical
+  // mass is 2: both of its neighbours can explode on the same wave, handing it
+  // +2 at once. It is unstable and detonates on the very next wave.
+  test('a corner can transiently hold 3 dots mid-cascade, then explode on the next wave', function () {
+    var board = GL.createEmptyBoard(7, 7);
+    board[0][6] = { owner: 0, count: 1 }; // top-right corner, critical mass 2
+    board[1][6] = { owner: 0, count: 2 }; // its neighbour (edge, cm 3)
+    board[0][5] = { owner: 0, count: 2 }; // its other neighbour (edge, cm 3)
+    board[1][5] = { owner: 0, count: 3 }; // interior cm 4, feeds BOTH neighbours
+
+    var res = GL.applyMove(board, 1, 5, 0, 7, 7);
+    var counts = res.steps.map(function (s) { return s.board[0][6].count; });
+    assertTrue(counts.indexOf(3) !== -1,
+      'expected a wave where the corner transiently holds 3 dots, got ' + JSON.stringify(counts));
+    // Crucially: it does NOT stay there - it detonates immediately after.
+    var idx = counts.indexOf(3);
+    assertTrue(idx < counts.length - 1, 'the transient 3-dot wave must not be the final wave');
+    assertEqual(res.board[0][6].count, 1, 'corner ends stable at 1 dot (3 - critical mass 2)');
+    assertTrue(res.board[0][6].count < GL.getCriticalMass(0, 6, 7, 7),
+      'final resting count must be below critical mass');
+  });
+
+  test('no cell ever RESTS at or above its critical mass after a move resolves', function () {
+    var board = GL.createEmptyBoard(7, 7);
+    board[0][6] = { owner: 0, count: 1 };
+    board[1][6] = { owner: 0, count: 2 };
+    board[0][5] = { owner: 0, count: 2 };
+    board[1][5] = { owner: 0, count: 3 };
+    var res = GL.applyMove(board, 1, 5, 0, 7, 7);
+    for (var r = 0; r < 7; r++) {
+      for (var c = 0; c < 7; c++) {
+        assertTrue(res.board[r][c].count < GL.getCriticalMass(r, c, 7, 7),
+          'cell (' + r + ',' + c + ') rests at ' + res.board[r][c].count +
+          ' with critical mass ' + GL.getCriticalMass(r, c, 7, 7));
+      }
+    }
   });
   test('edge has critical mass 3', function () {
     assertEqual(GL.getCriticalMass(0, 3, 7, 7), 3);
@@ -174,7 +241,7 @@
   });
 
   test('a player with zero cells is eliminated once all players have moved', function () {
-    var state = GL.createGame(2, 7, 7);
+    var state = midGame(GL.createGame(2, 7, 7));
     state.board[5][5] = { owner: 1, count: 3 };
     state.currentPlayerIndex = 1;
     state.totalMoves = 1;
@@ -185,7 +252,7 @@
   });
 
   test('full game: last player standing wins only when truly last', function () {
-    var state = GL.createGame(2, 7, 7);
+    var state = midGame(GL.createGame(2, 7, 7));
     state.board[0][0] = { owner: 0, count: 1 };
     state.board[3][3] = { owner: 1, count: 3 };
     state.board[3][2] = { owner: 0, count: 1 };
@@ -227,7 +294,7 @@
   });
 
   test('4p: turn order skips an eliminated player and does not end the game early', function () {
-    var state = GL.createGame(4, 7, 7);
+    var state = midGame(GL.createGame(4, 7, 7));
     // Player 1's only cell sits where player 0 is about to explode into it.
     state.board[3][3] = { owner: 0, count: 3 }; // interior, cm 4
     state.board[2][3] = { owner: 1, count: 1 }; // player 1's only cell
@@ -250,7 +317,7 @@
   });
 
   test('4p: a single multi-wave chain reaction can eliminate three opponents at once and correctly attributes every captured cell to the mover', function () {
-    var state = GL.createGame(4, 7, 7);
+    var state = midGame(GL.createGame(4, 7, 7));
     // Center stack about to explode (interior, critical mass 4).
     state.board[3][3] = { owner: 0, count: 3 };
     state.board[0][0] = { owner: 0, count: 1 }; // player 0's extra cell, well away from the blast
@@ -294,7 +361,7 @@
   });
 
   test('4p: game does not falsely end while two or more players still hold cells', function () {
-    var state = GL.createGame(4, 7, 7);
+    var state = midGame(GL.createGame(4, 7, 7));
     state.board[3][3] = { owner: 0, count: 3 };
     state.board[2][3] = { owner: 1, count: 1 }; // player 1's only cell -> will be wiped
     state.board[6][6] = { owner: 2, count: 1 }; // player 2 untouched
@@ -322,8 +389,14 @@
     assertEqual(GL.isValidMove(r1.state.board, 5, 5, 1), true);
     var r2 = GL.playMove(r1.state, 5, 5);
     assertEqual(r2.state.board[5][5].owner, 1, 'player 1 should now own the empty cell they tapped');
-    assertEqual(r2.state.board[5][5].count, 1);
+    // This is player 1's OPENING move, so it places the 3-dot opening stack.
+    assertEqual(r2.state.board[5][5].count, 3);
     assertEqual(r2.state.currentPlayerIndex, 0, 'turn should have advanced, proving the move was accepted');
+
+    // A later, non-opening move on a fresh empty cell still places exactly 1 dot.
+    var r3 = GL.playMove(r2.state, 2, 6);   // player 0's second move
+    assertEqual(r3.state.board[2][6].owner, 0);
+    assertEqual(r3.state.board[2][6].count, 1, 'non-opening placement adds a single dot');
   });
 
   test('(b) an edge cell does not explode at 2 dots but does at exactly 3 (its critical mass)', function () {
@@ -372,6 +445,75 @@
     assertEqual(result.board[0][2].count, 1);
     assertEqual(result.board[0][4].owner, 0);
     assertEqual(result.board[0][4].count, 1);
+  });
+
+  // ---- Opening-move rule: each player's FIRST move places 3 dots ----
+
+  test('opening move: a player\'s first placement puts 3 dots on the cell', function () {
+    var state = GL.createGame(2, 7, 7);
+    assertEqual(GL.placementDots(state, 0), 3, 'player 0 has not moved yet');
+    var r = GL.playMove(state, 3, 3); // interior, critical mass 4 - holds 3 without exploding
+    assertEqual(r.state.board[3][3].count, 3, 'opening move must place 3 dots');
+    assertEqual(r.state.board[3][3].owner, 0);
+    assertEqual(r.steps.length, 0, '3 dots on an interior cell (cm 4) must not explode');
+  });
+
+  test('opening bonus is per-player: each player gets 3 dots on their own first move', function () {
+    var state = GL.createGame(4, 7, 7);
+    var s = state;
+    // Four interior cells so nothing detonates and counts stay easy to read.
+    var spots = [[1, 1], [1, 4], [4, 1], [4, 4]];
+    for (var i = 0; i < 4; i++) {
+      assertEqual(GL.placementDots(s, i), 3, 'player ' + i + ' opening');
+      var res = GL.playMove(s, spots[i][0], spots[i][1]);
+      assertEqual(res.state.board[spots[i][0]][spots[i][1]].count, 3,
+        'player ' + i + ' opening move should place 3 dots');
+      assertEqual(res.state.board[spots[i][0]][spots[i][1]].owner, i);
+      s = res.state;
+    }
+    // Everyone has now opened, so all subsequent placements are single dots.
+    for (var j = 0; j < 4; j++) assertEqual(GL.placementDots(s, j), 1);
+  });
+
+  test('after opening, a player\'s later moves add exactly 1 dot', function () {
+    var state = GL.createGame(2, 7, 7);
+    var r1 = GL.playMove(state, 1, 1);          // P0 opening -> 3 dots
+    assertEqual(r1.state.board[1][1].count, 3);
+    var r2 = GL.playMove(r1.state, 4, 4);       // P1 opening -> 3 dots
+    assertEqual(r2.state.board[4][4].count, 3);
+    assertEqual(GL.placementDots(r2.state, 0), 1, 'player 0 already opened');
+
+    // P0's second move on a fresh EMPTY cell places a single dot, not 3.
+    var r3 = GL.playMove(r2.state, 5, 1);
+    assertEqual(r3.state.board[5][1].count, 1, 'second move on an empty cell adds 1 dot');
+    assertEqual(r3.state.board[5][1].owner, 0);
+
+    // And P1's second move on their OWN cell increments by exactly 1.
+    var r4 = GL.playMove(r3.state, 4, 4);
+    assertEqual(r4.state.board[4][4].count, 4 === GL.getCriticalMass(4, 4, 7, 7) ? 0 : 4,
+      'interior cell at 3 + 1 reaches critical mass 4 and detonates');
+    assertTrue(r4.steps.length >= 1, 'that increment should trigger the explosion');
+  });
+
+  test('opening 3 dots on a corner (critical mass 2) detonates immediately', function () {
+    var state = GL.createGame(2, 7, 7);
+    var r = GL.playMove(state, 0, 6); // top-right corner, cm 2, opening places 3
+    assertTrue(r.steps.length >= 1, 'placing 3 dots on a cm-2 corner must explode');
+    // 3 dots - critical mass 2 = 1 left behind, and both neighbours gain one.
+    assertEqual(r.state.board[0][6].count, 1);
+    assertEqual(r.state.board[0][6].owner, 0);
+    assertEqual(r.state.board[1][6].owner, 0);
+    assertEqual(r.state.board[0][5].owner, 0);
+  });
+
+  test('opening bonus does not repeat after a player is captured back to zero cells', function () {
+    var state = GL.createGame(2, 7, 7);
+    var r1 = GL.playMove(state, 1, 1);    // P0 opening
+    var r2 = GL.playMove(r1.state, 4, 4); // P1 opening
+    assertEqual(r2.state.players[0].hasMoved, true);
+    assertEqual(r2.state.players[1].hasMoved, true);
+    assertEqual(GL.placementDots(r2.state, 0), 1);
+    assertEqual(GL.placementDots(r2.state, 1), 1);
   });
 
   // Render results to the page and console.

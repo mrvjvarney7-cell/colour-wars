@@ -17,6 +17,13 @@ function test(name, fn) {
   }
 }
 
+// Tests that hand-build a mid-game board simulate players who have already
+// opened, so clear the per-player opening-move bonus for them.
+function midGame(state) {
+  state.players.forEach(function (p) { p.hasMoved = true; });
+  return state;
+}
+
 function boardFromSpec(spec) {
   // spec: array of rows, each row array of [owner, count] or null for empty
   return spec.map(function (row) {
@@ -189,7 +196,7 @@ test('no eliminations occur before every player has had one turn', function () {
 });
 
 test('a player with zero cells is eliminated once all players have moved', function () {
-  var state = GL.createGame(2, 7, 7);
+  var state = midGame(GL.createGame(2, 7, 7));
   // Manually construct a state where it's player 1's move, totalMoves already 1
   // (P0 has moved once), and player 0 currently owns zero cells (e.g. got wiped
   // by a hypothetical earlier explosion chain) - after P1 moves, elimination check runs.
@@ -203,7 +210,7 @@ test('a player with zero cells is eliminated once all players have moved', funct
 });
 
 test('full game: last player standing wins', function () {
-  var state = GL.createGame(2, 7, 7);
+  var state = midGame(GL.createGame(2, 7, 7));
   // P0 owns one weak cell, P1 is about to blow up and capture everything via chain.
   state.board[0][0] = { owner: 0, count: 1 }; // P0's only cell, corner cm=2 (not yet critical)
   state.board[3][3] = { owner: 1, count: 3 }; // interior cm=4, about to explode
@@ -245,7 +252,7 @@ test('4p: no elimination before every player has moved once, even with a zero-ce
 });
 
 test('4p: turn order skips an eliminated player and does not end the game early', function () {
-  var state = GL.createGame(4, 7, 7);
+  var state = midGame(GL.createGame(4, 7, 7));
   state.board[3][3] = { owner: 0, count: 3 };
   state.board[2][3] = { owner: 1, count: 1 };
   state.board[6][6] = { owner: 2, count: 1 };
@@ -267,7 +274,7 @@ test('4p: turn order skips an eliminated player and does not end the game early'
 });
 
 test('4p: a single multi-wave chain reaction can eliminate three opponents at once and correctly attributes every captured cell to the mover', function () {
-  var state = GL.createGame(4, 7, 7);
+  var state = midGame(GL.createGame(4, 7, 7));
   state.board[3][3] = { owner: 0, count: 3 };
   state.board[0][0] = { owner: 0, count: 1 };
   state.board[2][3] = { owner: 1, count: 1 };
@@ -300,7 +307,7 @@ test('4p: a single multi-wave chain reaction can eliminate three opponents at on
 });
 
 test('4p: game does not falsely end while two or more players still hold cells', function () {
-  var state = GL.createGame(4, 7, 7);
+  var state = midGame(GL.createGame(4, 7, 7));
   state.board[3][3] = { owner: 0, count: 3 };
   state.board[2][3] = { owner: 1, count: 1 };
   state.board[6][6] = { owner: 2, count: 1 };
@@ -325,8 +332,11 @@ test('(a) after the first move, the next player can place on ANY empty cell, not
   assert.strictEqual(GL.isValidMove(r1.state.board, 5, 5, 1), true);
   var r2 = GL.playMove(r1.state, 5, 5);
   assert.strictEqual(r2.state.board[5][5].owner, 1);
-  assert.strictEqual(r2.state.board[5][5].count, 1);
+  // Player 1's OPENING move places the 3-dot opening stack.
+  assert.strictEqual(r2.state.board[5][5].count, 3);
   assert.strictEqual(r2.state.currentPlayerIndex, 0);
+  var r3 = GL.playMove(r2.state, 2, 6);
+  assert.strictEqual(r3.state.board[2][6].count, 1);
 });
 
 test('(b) an edge cell does not explode at 2 dots but does at exactly 3 (its critical mass)', function () {

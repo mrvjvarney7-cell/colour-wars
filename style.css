@@ -308,6 +308,18 @@ body {
   border-color: color-mix(in srgb, var(--cell-color) 65%, var(--cell-empty-border));
 }
 
+/* A cell at/over its critical mass is unstable and detonates on the next wave.
+   Mark it so a transient mid-cascade count never reads as a settled position. */
+.cell.critical {
+  animation: charge 0.36s ease-in-out infinite;
+  border-color: var(--cell-color);
+}
+
+@keyframes charge {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cell-color) 55%, transparent); }
+  50% { box-shadow: 0 0 10px 2px color-mix(in srgb, var(--cell-color) 75%, transparent); }
+}
+
 .cell.pop {
   animation: pop 0.22s ease;
 }

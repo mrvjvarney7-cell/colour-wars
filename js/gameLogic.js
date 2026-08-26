@@ -7,6 +7,10 @@
   var ROWS = 7;
   var COLS = 7;
 
+  // Each player's very first move of the game places this many dots instead of
+  // one, to get games moving faster. Every later move places a single dot.
+  var OPENING_DOTS = 3;
+
   function getNeighbors(row, col, rows, cols) {
     var out = [];
     if (row > 0) out.push([row - 1, col]);
@@ -46,20 +50,21 @@
     return { rows: board.length, cols: board[0].length };
   }
 
-  // Applies a single move (placing one dot for `player` at row/col) and fully
-  // resolves any resulting chain reaction. Returns:
+  // Applies a single move (placing `dots` dots, default 1, for `player` at
+  // row/col) and fully resolves any resulting chain reaction. Returns:
   //   { board: <final board>, steps: [ { board: <snapshot after this wave>,
   //       exploded: [{row,col}], gains: [{row,col,fromRow,fromCol}] } ... ] }
   // `steps` lets the UI animate wave-by-wave; if no explosion occurs, steps is [].
-  function applyMove(board, row, col, player, rows, cols) {
+  function applyMove(board, row, col, player, rows, cols, dots) {
     var dims = boardDims(board);
     rows = rows || dims.rows;
     cols = cols || dims.cols;
+    dots = dots || 1;
 
     var working = cloneBoard(board);
     var cell = working[row][col];
     cell.owner = player;
-    cell.count += 1;
+    cell.count += dots;
 
     var steps = [];
     var guard = 0;
@@ -151,7 +156,9 @@
         name: 'Player ' + (i + 1),
         color: COLOR_PALETTE[i].hex,
         colorName: COLOR_PALETTE[i].name,
-        active: true
+        active: true,
+        // Drives the opening-move bonus: false until this player has moved once.
+        hasMoved: false
       });
     }
 
@@ -165,6 +172,13 @@
       gameOver: false,
       winner: null
     };
+  }
+
+  // How many dots `playerId`'s next placement drops: OPENING_DOTS for their very
+  // first move of the game, 1 for every move after that.
+  function placementDots(state, playerId) {
+    var p = state.players[playerId];
+    return (p && !p.hasMoved) ? OPENING_DOTS : 1;
   }
 
   function nextActivePlayerIndex(state, fromIndex) {
@@ -187,7 +201,8 @@
       return { state: state, steps: [] };
     }
 
-    var result = applyMove(state.board, row, col, player, state.rows, state.cols);
+    var dots = placementDots(state, player);
+    var result = applyMove(state.board, row, col, player, state.rows, state.cols, dots);
     var newState = {
       rows: state.rows,
       cols: state.cols,
@@ -198,6 +213,8 @@
       gameOver: false,
       winner: null
     };
+    // This player has now opened; their later moves place a single dot.
+    newState.players[player].hasMoved = true;
 
     // Only start checking eliminations once every player has had at least one turn.
     var firstRoundComplete = newState.totalMoves >= newState.players.length;
@@ -224,7 +241,9 @@
   var GameLogic = {
     ROWS: ROWS,
     COLS: COLS,
+    OPENING_DOTS: OPENING_DOTS,
     COLOR_PALETTE: COLOR_PALETTE,
+    placementDots: placementDots,
     getNeighbors: getNeighbors,
     getCriticalMass: getCriticalMass,
     createEmptyBoard: createEmptyBoard,

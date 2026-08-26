@@ -152,6 +152,7 @@
     var cluster = cellEl.querySelector('.dot-cluster');
     if (data.owner === null || data.count === 0) {
       cellEl.classList.remove('owned');
+      cellEl.classList.remove('critical');
       cellEl.style.removeProperty('--cell-color');
       cluster.innerHTML = '';
       cluster.removeAttribute('data-count');
@@ -159,6 +160,15 @@
     }
     cellEl.classList.add('owned');
     cellEl.style.setProperty('--cell-color', playerColor(data.owner));
+    // A cell can transiently hold more dots than its critical mass mid-cascade
+    // (e.g. a corner whose two neighbours both explode on the same wave gains 2
+    // at once). It always detonates on the very next wave, so mark it as unstable
+    // rather than letting it read as a cell resting above its critical mass.
+    if (data.count >= GL.getCriticalMass(r, c, state.rows, state.cols)) {
+      cellEl.classList.add('critical');
+    } else {
+      cellEl.classList.remove('critical');
+    }
     cluster.setAttribute('data-count', String(data.count));
     cluster.innerHTML = '';
     for (var i = 0; i < data.count; i++) {
@@ -215,6 +225,19 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
+  // True if any cell in this snapshot is at/over its critical mass, i.e. the
+  // board is still mid-cascade and will explode again on the next wave.
+  function boardHasCriticalCells(board) {
+    for (var r = 0; r < board.length; r++) {
+      for (var c = 0; c < board[0].length; c++) {
+        if (board[r][c].count >= GL.getCriticalMass(r, c, board.length, board[0].length)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function animateWave(step, color, epoch) {
     if (epoch !== gameEpoch) return Promise.resolve();
     step.exploded.forEach(function (pos) {
@@ -253,7 +276,9 @@
       // The game may have been reset mid-flight; never paint a stale board.
       if (epoch !== gameEpoch) return;
       renderBoard(step.board);
-      return delay(WAVE_PAUSE_MS);
+      // Don't linger on a frame that still contains cells past their critical
+      // mass - those are mid-cascade states, not a position anyone can read.
+      return delay(boardHasCriticalCells(step.board) ? 0 : WAVE_PAUSE_MS);
     });
   }
 
@@ -285,11 +310,15 @@
     var epoch = gameEpoch;
 
     animating = true;
-    // Show the dot landing on the tapped cell immediately, before any explosion waves animate.
-    var preBoard = GL.cloneBoard(state.board);
-    preBoard[r][c].owner = movingPlayerId;
-    preBoard[r][c].count += 1;
-    renderCell(r, c, preBoard);
+    // Show the dot(s) landing on the tapped cell immediately, before any explosion
+    // waves animate. Skipped when the placement detonates straight away, so the
+    // cell is never painted resting above its critical mass.
+    if (result.steps.length === 0) {
+      var preBoard = GL.cloneBoard(state.board);
+      preBoard[r][c].owner = movingPlayerId;
+      preBoard[r][c].count += GL.placementDots(state, movingPlayerId);
+      renderCell(r, c, preBoard);
+    }
 
     animateSteps(result.steps, movingColor, epoch).then(function () {
       // If the game was reset while this cascade was animating, this result
