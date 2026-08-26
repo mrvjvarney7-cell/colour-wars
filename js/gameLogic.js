@@ -1,0 +1,245 @@
+// Pure, DOM-free game logic for Chain Reaction / Color Wars.
+// Usable from the browser (attaches to window.GameLogic) and from Node (module.exports).
+
+(function (root) {
+  'use strict';
+
+  var ROWS = 7;
+  var COLS = 7;
+
+  function getNeighbors(row, col, rows, cols) {
+    var out = [];
+    if (row > 0) out.push([row - 1, col]);
+    if (row < rows - 1) out.push([row + 1, col]);
+    if (col > 0) out.push([row, col - 1]);
+    if (col < cols - 1) out.push([row, col + 1]);
+    return out;
+  }
+
+  function getCriticalMass(row, col, rows, cols) {
+    return getNeighbors(row, col, rows, cols).length;
+  }
+
+  function createEmptyBoard(rows, cols) {
+    rows = rows || ROWS;
+    cols = cols || COLS;
+    var board = [];
+    for (var r = 0; r < rows; r++) {
+      var rowArr = [];
+      for (var c = 0; c < cols; c++) {
+        rowArr.push({ owner: null, count: 0 });
+      }
+      board.push(rowArr);
+    }
+    return board;
+  }
+
+  function cloneBoard(board) {
+    return board.map(function (row) {
+      return row.map(function (cell) {
+        return { owner: cell.owner, count: cell.count };
+      });
+    });
+  }
+
+  function boardDims(board) {
+    return { rows: board.length, cols: board[0].length };
+  }
+
+  // Applies a single move (placing one dot for `player` at row/col) and fully
+  // resolves any resulting chain reaction. Returns:
+  //   { board: <final board>, steps: [ { board: <snapshot after this wave>,
+  //       exploded: [{row,col}], gains: [{row,col,fromRow,fromCol}] } ... ] }
+  // `steps` lets the UI animate wave-by-wave; if no explosion occurs, steps is [].
+  function applyMove(board, row, col, player, rows, cols) {
+    var dims = boardDims(board);
+    rows = rows || dims.rows;
+    cols = cols || dims.cols;
+
+    var working = cloneBoard(board);
+    var cell = working[row][col];
+    cell.owner = player;
+    cell.count += 1;
+
+    var steps = [];
+    var guard = 0;
+    var guardLimit = rows * cols * 50; // safety valve against pathological infinite loops
+
+    while (true) {
+      guard++;
+      if (guard > guardLimit) break;
+
+      var unstable = [];
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          var cm = getCriticalMass(r, c, rows, cols);
+          if (working[r][c].count >= cm) {
+            unstable.push([r, c]);
+          }
+        }
+      }
+
+      if (unstable.length === 0) break;
+
+      var gains = [];
+      // Resolve this wave: every unstable cell explodes simultaneously.
+      unstable.forEach(function (pos) {
+        var er = pos[0], ec = pos[1];
+        var explodingCell = working[er][ec];
+        var cm = getCriticalMass(er, ec, rows, cols);
+        explodingCell.count -= cm;
+        if (explodingCell.count <= 0) {
+          explodingCell.count = 0;
+          explodingCell.owner = null;
+        }
+        var neighbors = getNeighbors(er, ec, rows, cols);
+        neighbors.forEach(function (n) {
+          gains.push({ row: n[0], col: n[1], fromRow: er, fromCol: ec });
+        });
+      });
+
+      gains.forEach(function (g) {
+        var target = working[g.row][g.col];
+        target.count += 1;
+        target.owner = player;
+      });
+
+      steps.push({
+        board: cloneBoard(working),
+        exploded: unstable.map(function (p) { return { row: p[0], col: p[1] }; }),
+        gains: gains
+      });
+    }
+
+    return { board: working, steps: steps };
+  }
+
+  function isValidMove(board, row, col, player) {
+    if (row < 0 || col < 0 || row >= board.length || col >= board[0].length) return false;
+    var cell = board[row][col];
+    return cell.owner === null || cell.owner === player;
+  }
+
+  function countCellsForPlayer(board, player) {
+    var n = 0;
+    board.forEach(function (row) {
+      row.forEach(function (cell) {
+        if (cell.owner === player) n++;
+      });
+    });
+    return n;
+  }
+
+  // ---- Game-level state ----
+
+  var COLOR_PALETTE = [
+    { name: 'blue', hex: '#2563eb' },
+    { name: 'green', hex: '#16a34a' },
+    { name: 'orange', hex: '#f97316' },
+    { name: 'red', hex: '#dc2626' }
+  ];
+
+  function createGame(numPlayers, rows, cols) {
+    rows = rows || ROWS;
+    cols = cols || COLS;
+    numPlayers = Math.max(2, Math.min(4, numPlayers));
+
+    var players = [];
+    for (var i = 0; i < numPlayers; i++) {
+      players.push({
+        id: i,
+        name: 'Player ' + (i + 1),
+        color: COLOR_PALETTE[i].hex,
+        colorName: COLOR_PALETTE[i].name,
+        active: true
+      });
+    }
+
+    return {
+      rows: rows,
+      cols: cols,
+      board: createEmptyBoard(rows, cols),
+      players: players,
+      currentPlayerIndex: 0,
+      totalMoves: 0,
+      gameOver: false,
+      winner: null
+    };
+  }
+
+  function nextActivePlayerIndex(state, fromIndex) {
+    var n = state.players.length;
+    for (var step = 1; step <= n; step++) {
+      var idx = (fromIndex + step) % n;
+      if (state.players[idx].active) return idx;
+    }
+    return fromIndex;
+  }
+
+  // Applies a move to a game state (does NOT mutate the input state).
+  // Returns { state: <new game state>, steps: <animation steps from applyMove> }
+  function playMove(state, row, col) {
+    if (state.gameOver) {
+      return { state: state, steps: [] };
+    }
+    var player = state.currentPlayerIndex;
+    if (!isValidMove(state.board, row, col, player)) {
+      return { state: state, steps: [] };
+    }
+
+    var result = applyMove(state.board, row, col, player, state.rows, state.cols);
+    var newState = {
+      rows: state.rows,
+      cols: state.cols,
+      board: result.board,
+      players: state.players.map(function (p) { return Object.assign({}, p); }),
+      currentPlayerIndex: state.currentPlayerIndex,
+      totalMoves: state.totalMoves + 1,
+      gameOver: false,
+      winner: null
+    };
+
+    // Only start checking eliminations once every player has had at least one turn.
+    var firstRoundComplete = newState.totalMoves >= newState.players.length;
+    if (firstRoundComplete) {
+      newState.players.forEach(function (p) {
+        if (p.active && countCellsForPlayer(newState.board, p.id) === 0) {
+          p.active = false;
+        }
+      });
+    }
+
+    var activePlayers = newState.players.filter(function (p) { return p.active; });
+    if (firstRoundComplete && activePlayers.length === 1) {
+      newState.gameOver = true;
+      newState.winner = activePlayers[0].id;
+      newState.currentPlayerIndex = player;
+    } else {
+      newState.currentPlayerIndex = nextActivePlayerIndex(newState, player);
+    }
+
+    return { state: newState, steps: result.steps };
+  }
+
+  var GameLogic = {
+    ROWS: ROWS,
+    COLS: COLS,
+    COLOR_PALETTE: COLOR_PALETTE,
+    getNeighbors: getNeighbors,
+    getCriticalMass: getCriticalMass,
+    createEmptyBoard: createEmptyBoard,
+    cloneBoard: cloneBoard,
+    applyMove: applyMove,
+    isValidMove: isValidMove,
+    countCellsForPlayer: countCellsForPlayer,
+    createGame: createGame,
+    playMove: playMove,
+    nextActivePlayerIndex: nextActivePlayerIndex
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = GameLogic;
+  } else {
+    root.GameLogic = GameLogic;
+  }
+})(typeof window !== 'undefined' ? window : globalThis);

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Colour Wars</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Setup screen -->
+  <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours</div>
+        <div id="player-list" class="player-list"></div>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+    </div>
+  </section>
+
+  <!-- Game screen -->
+  <section id="game-screen" class="screen hidden">
+    <header class="turn-bar" id="turn-bar">
+      <div class="turn-indicator" id="turn-indicator">
+        <span class="turn-dot" id="turn-dot"></span>
+        <span id="turn-label">Player 1's turn</span>
+      </div>
+      <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+    </header>
+
+    <div class="players-strip" id="players-strip"></div>
+
+    <div class="board-wrap">
+      <div class="board" id="board"></div>
+      <div class="fx-layer" id="fx-layer"></div>
+    </div>
+  </section>
+
+  <!-- Win overlay -->
+  <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js"></script>
+  <script src="js/ui.js"></script>
+</body>
+</html>
