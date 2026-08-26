@@ -115,6 +115,11 @@
   var state = null;
   var animating = false;
   var cellEls = [];
+  // Incremented whenever the current game is torn down (New Game / Start Game).
+  // An animation captures the epoch it started in and aborts if it no longer
+  // matches, so a cascade still in flight can never paint onto - or overwrite
+  // the state of - a game that has since been replaced.
+  var gameEpoch = 0;
 
   function buildBoardDom(rows, cols) {
     boardEl.innerHTML = '';
@@ -210,7 +215,8 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
-  function animateWave(step, color) {
+  function animateWave(step, color, epoch) {
+    if (epoch !== gameEpoch) return Promise.resolve();
     step.exploded.forEach(function (pos) {
       var el = cellEls[pos.row][pos.col];
       el.classList.remove('pop');
@@ -244,15 +250,17 @@
 
     return delay(FLIGHT_MS).then(function () {
       flyers.forEach(function (f) { f.el.remove(); });
+      // The game may have been reset mid-flight; never paint a stale board.
+      if (epoch !== gameEpoch) return;
       renderBoard(step.board);
       return delay(WAVE_PAUSE_MS);
     });
   }
 
-  function animateSteps(steps, color) {
+  function animateSteps(steps, color, epoch) {
     var chain = Promise.resolve();
     steps.forEach(function (step) {
-      chain = chain.then(function () { return animateWave(step, color); });
+      chain = chain.then(function () { return animateWave(step, color, epoch); });
     });
     return chain;
   }
@@ -274,6 +282,7 @@
     var movingPlayerId = state.currentPlayerIndex;
     var movingColor = playerColor(movingPlayerId);
     var result = GL.playMove(state, r, c);
+    var epoch = gameEpoch;
 
     animating = true;
     // Show the dot landing on the tapped cell immediately, before any explosion waves animate.
@@ -282,7 +291,11 @@
     preBoard[r][c].count += 1;
     renderCell(r, c, preBoard);
 
-    animateSteps(result.steps, movingColor).then(function () {
+    animateSteps(result.steps, movingColor, epoch).then(function () {
+      // If the game was reset while this cascade was animating, this result
+      // belongs to a game that no longer exists - discard it rather than
+      // overwriting the new game's state and board.
+      if (epoch !== gameEpoch) return;
       state = result.state;
       renderBoard(state.board);
       renderTurnIndicator();
@@ -292,7 +305,16 @@
     });
   }
 
+  // Abandons any cascade still animating from a previous game, so it cannot
+  // paint onto or overwrite the game that replaces it.
+  function resetAnimationState() {
+    gameEpoch++;
+    animating = false;
+    fxLayerEl.innerHTML = '';
+  }
+
   function startGame() {
+    resetAnimationState();
     var game = GL.createGame(setup.numPlayers);
     for (var i = 0; i < setup.numPlayers; i++) {
       game.players[i].name = setup.players[i].name;
@@ -309,6 +331,7 @@
   }
 
   function backToSetup() {
+    resetAnimationState();
     winScreen.classList.add('hidden');
     gameScreen.classList.add('hidden');
     setupScreen.classList.remove('hidden');
