@@ -11,6 +11,13 @@
   // one, to get games moving faster. Every later move places a single dot.
   var OPENING_DOTS = 3;
 
+  // Every cell on the board explodes at the same threshold, regardless of
+  // position: corners, edges and interior cells all detonate at 4 dots and lose
+  // exactly 4 when they do. A cell with fewer than 4 orthogonal neighbours still
+  // sends only one dot to each neighbour it actually has - the remaining dots
+  // are discarded.
+  var CRITICAL_MASS = 4;
+
   function getNeighbors(row, col, rows, cols) {
     var out = [];
     if (row > 0) out.push([row - 1, col]);
@@ -20,8 +27,10 @@
     return out;
   }
 
-  function getCriticalMass(row, col, rows, cols) {
-    return getNeighbors(row, col, rows, cols).length;
+  // Fixed for every cell on the board. Arguments are accepted so callers can pass
+  // a position, but the threshold no longer depends on it.
+  function getCriticalMass() {
+    return CRITICAL_MASS;
   }
 
   function createEmptyBoard(rows, cols) {
@@ -77,8 +86,7 @@
       var unstable = [];
       for (var r = 0; r < rows; r++) {
         for (var c = 0; c < cols; c++) {
-          var cm = getCriticalMass(r, c, rows, cols);
-          if (working[r][c].count >= cm) {
+          if (working[r][c].count >= CRITICAL_MASS) {
             unstable.push([r, c]);
           }
         }
@@ -91,12 +99,14 @@
       unstable.forEach(function (pos) {
         var er = pos[0], ec = pos[1];
         var explodingCell = working[er][ec];
-        var cm = getCriticalMass(er, ec, rows, cols);
-        explodingCell.count -= cm;
+        // Always loses the full critical mass, whatever its neighbour count.
+        explodingCell.count -= CRITICAL_MASS;
         if (explodingCell.count <= 0) {
           explodingCell.count = 0;
           explodingCell.owner = null;
         }
+        // Only orthogonal neighbours that exist receive a dot; for a corner or
+        // edge cell the leftover dots are simply discarded.
         var neighbors = getNeighbors(er, ec, rows, cols);
         neighbors.forEach(function (n) {
           gains.push({ row: n[0], col: n[1], fromRow: er, fromCol: ec });
@@ -242,6 +252,7 @@
     ROWS: ROWS,
     COLS: COLS,
     OPENING_DOTS: OPENING_DOTS,
+    CRITICAL_MASS: CRITICAL_MASS,
     COLOR_PALETTE: COLOR_PALETTE,
     placementDots: placementDots,
     getNeighbors: getNeighbors,

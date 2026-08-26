@@ -370,11 +370,38 @@ body {
 .dot-cluster[data-count="3"] .dot:nth-child(2) { top: 58%; left: 10%; }
 .dot-cluster[data-count="3"] .dot:nth-child(3) { top: 58%; left: 64%; }
 
-/* four+ dots (rare, momentary pre-explosion state): 2x2 */
+/* four dots (momentary pre-explosion state, since critical mass is 4): 2x2 */
 .dot-cluster[data-count="4"] .dot:nth-child(1) { top: 8%; left: 8%; }
 .dot-cluster[data-count="4"] .dot:nth-child(2) { top: 8%; left: 62%; }
 .dot-cluster[data-count="4"] .dot:nth-child(3) { top: 62%; left: 8%; }
 .dot-cluster[data-count="4"] .dot:nth-child(4) { top: 62%; left: 62%; }
+
+/* 5-7 dots only occur mid-cascade, when several neighbours detonate on the same
+   wave. Lay them out so the count stays readable for that brief frame. */
+.dot-cluster[data-count="5"] .dot,
+.dot-cluster[data-count="6"] .dot,
+.dot-cluster[data-count="7"] .dot { width: 22%; height: 22%; }
+
+.dot-cluster[data-count="5"] .dot:nth-child(1) { top: 6%; left: 6%; }
+.dot-cluster[data-count="5"] .dot:nth-child(2) { top: 6%; left: 66%; }
+.dot-cluster[data-count="5"] .dot:nth-child(3) { top: 39%; left: 39%; }
+.dot-cluster[data-count="5"] .dot:nth-child(4) { top: 66%; left: 6%; }
+.dot-cluster[data-count="5"] .dot:nth-child(5) { top: 66%; left: 66%; }
+
+.dot-cluster[data-count="6"] .dot:nth-child(1) { top: 6%; left: 6%; }
+.dot-cluster[data-count="6"] .dot:nth-child(2) { top: 6%; left: 39%; }
+.dot-cluster[data-count="6"] .dot:nth-child(3) { top: 6%; left: 72%; }
+.dot-cluster[data-count="6"] .dot:nth-child(4) { top: 66%; left: 6%; }
+.dot-cluster[data-count="6"] .dot:nth-child(5) { top: 66%; left: 39%; }
+.dot-cluster[data-count="6"] .dot:nth-child(6) { top: 66%; left: 72%; }
+
+.dot-cluster[data-count="7"] .dot:nth-child(1) { top: 4%; left: 6%; }
+.dot-cluster[data-count="7"] .dot:nth-child(2) { top: 4%; left: 39%; }
+.dot-cluster[data-count="7"] .dot:nth-child(3) { top: 4%; left: 72%; }
+.dot-cluster[data-count="7"] .dot:nth-child(4) { top: 39%; left: 39%; }
+.dot-cluster[data-count="7"] .dot:nth-child(5) { top: 72%; left: 6%; }
+.dot-cluster[data-count="7"] .dot:nth-child(6) { top: 72%; left: 39%; }
+.dot-cluster[data-count="7"] .dot:nth-child(7) { top: 72%; left: 72%; }
 
 .flying-dot {
   position: absolute;
