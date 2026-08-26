@@ -316,5 +316,59 @@ test('4p: game does not falsely end while two or more players still hold cells',
   assert.strictEqual(r.state.winner, null);
 });
 
+console.log('\nRegression coverage for reported bugs: turn restriction, premature critical mass, chain-reaction re-evaluation');
+
+test('(a) after the first move, the next player can place on ANY empty cell, not just one they already own', function () {
+  var state = GL.createGame(2, 7, 7);
+  var r1 = GL.playMove(state, 0, 0);
+  assert.strictEqual(r1.state.currentPlayerIndex, 1);
+  assert.strictEqual(GL.isValidMove(r1.state.board, 5, 5, 1), true);
+  var r2 = GL.playMove(r1.state, 5, 5);
+  assert.strictEqual(r2.state.board[5][5].owner, 1);
+  assert.strictEqual(r2.state.board[5][5].count, 1);
+  assert.strictEqual(r2.state.currentPlayerIndex, 0);
+});
+
+test('(b) an edge cell does not explode at 2 dots but does at exactly 3 (its critical mass)', function () {
+  var board = GL.createEmptyBoard(7, 7);
+  assert.strictEqual(GL.getCriticalMass(0, 3, 7, 7), 3);
+
+  var afterFirst = GL.applyMove(board, 0, 3, 0, 7, 7);
+  assert.strictEqual(afterFirst.board[0][3].count, 1);
+  assert.strictEqual(afterFirst.steps.length, 0);
+
+  var afterSecond = GL.applyMove(afterFirst.board, 0, 3, 0, 7, 7);
+  assert.strictEqual(afterSecond.board[0][3].count, 2);
+  assert.strictEqual(afterSecond.board[0][3].owner, 0);
+  assert.strictEqual(afterSecond.steps.length, 0);
+
+  var afterThird = GL.applyMove(afterSecond.board, 0, 3, 0, 7, 7);
+  assert.strictEqual(afterThird.steps.length, 1);
+  assert.strictEqual(afterThird.board[0][3].count, 0);
+  assert.strictEqual(afterThird.board[0][3].owner, null);
+  assert.strictEqual(afterThird.board[0][2].count, 1);
+  assert.strictEqual(afterThird.board[0][4].count, 1);
+  assert.strictEqual(afterThird.board[1][3].count, 1);
+});
+
+test('(c) a cell reaching critical mass purely from a cascade-received dot mid-chain-reaction explodes in the same move', function () {
+  var board = GL.createEmptyBoard(7, 7);
+  board[1][3] = { owner: 0, count: 3 };
+  board[0][3] = { owner: 1, count: 2 };
+  assert.strictEqual(GL.getCriticalMass(0, 3, 7, 7), 3);
+
+  var result = GL.applyMove(board, 1, 3, 0, 7, 7);
+
+  assert.ok(result.steps.length >= 2);
+  assert.strictEqual(result.board[0][3].owner, null);
+  assert.strictEqual(result.board[0][3].count, 0);
+  assert.strictEqual(result.board[1][3].owner, 0);
+  assert.strictEqual(result.board[1][3].count, 1);
+  assert.strictEqual(result.board[0][2].owner, 0);
+  assert.strictEqual(result.board[0][2].count, 1);
+  assert.strictEqual(result.board[0][4].owner, 0);
+  assert.strictEqual(result.board[0][4].count, 1);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);

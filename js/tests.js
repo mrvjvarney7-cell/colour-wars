@@ -310,6 +310,70 @@
     assertEqual(r.state.winner, null);
   });
 
+  // ---- Regression coverage for reported bugs: turn restriction, premature
+  // critical mass, and chain-reaction re-evaluation ----
+
+  test('(a) after the first move, the next player can place on ANY empty cell, not just one they already own', function () {
+    var state = GL.createGame(2, 7, 7);
+    var r1 = GL.playMove(state, 0, 0); // player 0's first move
+    assertEqual(r1.state.currentPlayerIndex, 1);
+    // Player 1 owns nothing yet. (5,5) is empty and is not player 0's cell either -
+    // this must be allowed, not rejected as "not already mine".
+    assertEqual(GL.isValidMove(r1.state.board, 5, 5, 1), true);
+    var r2 = GL.playMove(r1.state, 5, 5);
+    assertEqual(r2.state.board[5][5].owner, 1, 'player 1 should now own the empty cell they tapped');
+    assertEqual(r2.state.board[5][5].count, 1);
+    assertEqual(r2.state.currentPlayerIndex, 0, 'turn should have advanced, proving the move was accepted');
+  });
+
+  test('(b) an edge cell does not explode at 2 dots but does at exactly 3 (its critical mass)', function () {
+    var board = GL.createEmptyBoard(7, 7);
+    assertEqual(GL.getCriticalMass(0, 3, 7, 7), 3, 'edge cell critical mass must be 3');
+
+    var afterFirst = GL.applyMove(board, 0, 3, 0, 7, 7);
+    assertEqual(afterFirst.board[0][3].count, 1);
+    assertEqual(afterFirst.steps.length, 0);
+
+    var afterSecond = GL.applyMove(afterFirst.board, 0, 3, 0, 7, 7);
+    assertEqual(afterSecond.board[0][3].count, 2, 'two dots on an edge cell must NOT trigger an explosion');
+    assertEqual(afterSecond.board[0][3].owner, 0, 'cell must still be owned/intact, not reset by a false explosion');
+    assertEqual(afterSecond.steps.length, 0, 'no explosion should occur at 2 dots on an edge cell');
+
+    var afterThird = GL.applyMove(afterSecond.board, 0, 3, 0, 7, 7);
+    assertEqual(afterThird.steps.length, 1, 'the third dot reaches critical mass 3 and must explode');
+    assertEqual(afterThird.board[0][3].count, 0);
+    assertEqual(afterThird.board[0][3].owner, null);
+    assertEqual(afterThird.board[0][2].count, 1);
+    assertEqual(afterThird.board[0][4].count, 1);
+    assertEqual(afterThird.board[1][3].count, 1);
+  });
+
+  test('(c) a cell reaching critical mass purely from a cascade-received dot mid-chain-reaction explodes in the same move', function () {
+    var board = GL.createEmptyBoard(7, 7);
+    // Interior source about to explode (critical mass 4).
+    board[1][3] = { owner: 0, count: 3 };
+    // Edge neighbour sitting one dot below ITS OWN critical mass (3) - not tapped
+    // directly by any player this move; it can only reach 3 via the cascade gain.
+    board[0][3] = { owner: 1, count: 2 };
+    assertEqual(GL.getCriticalMass(0, 3, 7, 7), 3);
+
+    var result = GL.applyMove(board, 1, 3, 0, 7, 7);
+
+    assertTrue(result.steps.length >= 2, 'expected a second wave triggered purely by the cascade-received dot');
+    // (0,3) must have re-exploded: cascade brought it from 2 -> 3 (its own critical
+    // mass), and the loop must catch that on re-scan, not just check the initially
+    // tapped cell (1,3).
+    assertEqual(result.board[0][3].owner, null, '(0,3) should have exploded itself, ending up empty');
+    assertEqual(result.board[0][3].count, 0);
+    // Its neighbours should show the second-wave gain, proving it actually fired.
+    assertEqual(result.board[1][3].owner, 0);
+    assertEqual(result.board[1][3].count, 1, '(1,3) exploded in wave 1 then received 1 back from (0,3) exploding in wave 2');
+    assertEqual(result.board[0][2].owner, 0);
+    assertEqual(result.board[0][2].count, 1);
+    assertEqual(result.board[0][4].owner, 0);
+    assertEqual(result.board[0][4].count, 1);
+  });
+
   // Render results to the page and console.
   var out = document.getElementById('results');
   var lines = [];
