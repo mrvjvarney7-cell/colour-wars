@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Colour Wars</title>
+<link rel="stylesheet" href="style.css?v=5">
+</head>
+<body>
+
+  <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Opponent</div>
+        <div id="opponent-mode-buttons" class="segmented segmented-2"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours</div>
+        <div id="player-list" class="player-list"></div>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+      <p class="build-tag">build 5</p>
+    </div>
+  </section>
+
+  <section id="game-screen" class="screen hidden">
+    <header class="turn-bar" id="turn-bar">
+      <div class="turn-indicator" id="turn-indicator">
+        <span class="turn-dot" id="turn-dot"></span>
+        <span id="turn-label">Player 1's turn</span>
+        <span id="ai-thinking" class="ai-thinking hidden">
+          <span class="ai-thinking-dot"></span>
+          <span class="ai-thinking-dot"></span>
+          <span class="ai-thinking-dot"></span>
+          AI is thinking&hellip;
+        </span>
+      </div>
+      <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+    </header>
+
+    <div class="players-strip" id="players-strip"></div>
+
+    <div class="board-wrap">
+      <div class="board" id="board"></div>
+      <div class="fx-layer" id="fx-layer"></div>
+    </div>
+  </section>
+
+  <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js?v=5"></script>
+  <script src="js/ai/encode.js?v=5"></script>
+  <script src="js/ai/network.js?v=5"></script>
+  <script src="js/ai/mcts.js?v=5"></script>
+  <script src="js/ai/weights.js?v=5"></script>
+  <script src="js/ui.js?v=5"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Drives the real, unmodified UI above via real DOM
+       events, then writes a JSON summary into document.title for the
+       headless-Edge --dump-dom capture to read back. -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) {
+        document.title = 'RESULT:' + JSON.stringify(obj);
+      }
+
+      function findButtonByText(container, text) {
+        var btns = container.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) {
+          if (btns[i].textContent.trim() === text) return btns[i];
+        }
+        return null;
+      }
+
+      function fail(reason) {
+        report({ ok: false, reason: reason, errors: errors });
+      }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+        if (typeof Encode === 'undefined') return fail('Encode did not load');
+        if (typeof NeuralNet === 'undefined') return fail('NeuralNet did not load');
+        if (typeof MCTS === 'undefined') return fail('MCTS did not load');
+        if (typeof AI_WEIGHTS === 'undefined') return fail('AI_WEIGHTS did not load');
+
+        var aiBtn = findButtonByText(document.getElementById('opponent-mode-buttons'), 'Human vs AI');
+        if (!aiBtn) return fail('Human vs AI button not found');
+        aiBtn.click();
+        // renderOpponentModeButtons() rebuilds the button DOM on click (same
+        // pattern as the existing player-count buttons), so re-query rather
+        // than reuse the now-detached original reference.
+        var aiBtnAfter = findButtonByText(document.getElementById('opponent-mode-buttons'), 'Human vs AI');
+        if (!aiBtnAfter || !aiBtnAfter.classList.contains('active')) {
+          return fail('Human vs AI button did not become active after click');
+        }
+
+        document.getElementById('start-game-btn').click();
+        if (document.getElementById('setup-screen').classList.contains('hidden') === false) {
+          return fail('setup screen did not hide after Start Game');
+        }
+        if (document.getElementById('game-screen').classList.contains('hidden')) {
+          return fail('game screen did not show after Start Game');
+        }
+
+        var cellsBefore = document.querySelectorAll('.cell').length;
+        if (cellsBefore !== 49) return fail('expected 49 cells, got ' + cellsBefore);
+
+        // Human (seat 0) opens in the center - always legal on an empty board.
+        var centerCell = document.querySelector('.cell[data-row="3"][data-col="3"]');
+        if (!centerCell) return fail('center cell not found');
+        centerCell.click();
+
+        var thinkingWasShown = false;
+        var pollCount = 0;
+        var maxPolls = 400; // 400 * 150ms = 60s ceiling
+
+        var poll = setInterval(function () {
+          pollCount++;
+          var thinkingEl = document.getElementById('ai-thinking');
+          if (!thinkingEl.classList.contains('hidden')) thinkingWasShown = true;
+
+          var ownedCells = document.querySelectorAll('.cell.owned').length;
+          var stillThinking = !thinkingEl.classList.contains('hidden');
+
+          if (!stillThinking && ownedCells >= 2) {
+            clearInterval(poll);
+            finish(ownedCells);
+          } else if (pollCount >= maxPolls) {
+            clearInterval(poll);
+            fail('timed out waiting for AI move (ownedCells=' + ownedCells +
+                 ', thinkingWasShown=' + thinkingWasShown + ')');
+          }
+        }, 150);
+
+        function finish(ownedCells) {
+          try {
+            // Re-derive board state straight from the DOM to confirm both
+            // moves actually landed with plausible owner/count, independent
+            // of ui.js's own internal state.
+            var owned = document.querySelectorAll('.cell.owned');
+            var summary = [];
+            owned.forEach(function (el) {
+              var cluster = el.querySelector('.dot-cluster');
+              summary.push({
+                row: el.dataset.row, col: el.dataset.col,
+                count: cluster.getAttribute('data-count')
+              });
+            });
+            // Note: AI move timing is NOT measured here - this page runs
+            // under --virtual-time-budget, which freezes performance.now()
+            // during synchronous execution (it only advances virtual time
+            // for pending timers/idle gaps). See run_ai_move_timing.py /
+            // ai_move_timing_test.html for a real wall-clock measurement.
+            report({
+              ok: errors.length === 0,
+              errors: errors,
+              thinkingWasShown: thinkingWasShown,
+              ownedCellCount: ownedCells,
+              cells: summary,
+              turnLabel: document.getElementById('turn-label').textContent
+            });
+          } catch (e) {
+            fail('exception in finish(): ' + e.message);
+          }
+        }
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>

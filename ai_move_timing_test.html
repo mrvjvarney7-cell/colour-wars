@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><title>timing-not-run</title></head>
+<body>
+  <!-- Real wall-clock timing of an AI move (js/ai/mcts.js + network.js),
+       run WITHOUT --virtual-time-budget (which freezes performance.now()
+       during synchronous execution) so the measurement is trustworthy.
+       See python/colourwars/tests/run_ai_move_timing.py. -->
+  <script src="js/gameLogic.js?v=5"></script>
+  <script src="js/ai/encode.js?v=5"></script>
+  <script src="js/ai/network.js?v=5"></script>
+  <script src="js/ai/mcts.js?v=5"></script>
+  <script src="js/ai/weights.js?v=5"></script>
+  <script>
+    (function () {
+      var state = GameLogic.createGame(2);
+      var REPEATS = 10;
+      var t0 = performance.now();
+      for (var i = 0; i < REPEATS; i++) {
+        var root = MCTS.runMcts(state, AI_WEIGHTS, 60);
+        MCTS.bestAction(root);
+      }
+      var totalMs = performance.now() - t0;
+      document.title = 'TIMING:' + JSON.stringify({
+        repeats: REPEATS,
+        totalMs: Math.round(totalMs),
+        perMoveMs: Math.round((totalMs / REPEATS) * 10) / 10
+      });
+    })();
+  </script>
+</body></html>

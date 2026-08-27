@@ -8,11 +8,25 @@
   var WAVE_PAUSE_MS = 90;
   var POP_MS = 260;
 
+  // ---------- AI opponent ----------
+  // The human always plays seat 0; every other seat is AI-controlled when
+  // opponentMode is 'ai'. MCTS simulations/move is a plain tradeoff between
+  // move strength and "AI is thinking" wait time - tune here if needed.
+  var AI_SIMULATIONS = 60;
+  var HUMAN_SEAT = 0;
+  var THINKING_YIELD_MS = 50; // lets the "AI is thinking" indicator paint before the blocking search runs
+  var aiThinkingEl = document.getElementById('ai-thinking');
+
+  function isAiTurn() {
+    return state && setup.opponentMode === 'ai' && state.currentPlayerIndex !== HUMAN_SEAT;
+  }
+
   // ---------- DOM refs ----------
   var setupScreen = document.getElementById('setup-screen');
   var gameScreen = document.getElementById('game-screen');
   var winScreen = document.getElementById('win-screen');
 
+  var opponentModeButtonsEl = document.getElementById('opponent-mode-buttons');
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
   var playerListEl = document.getElementById('player-list');
   var startGameBtn = document.getElementById('start-game-btn');
@@ -32,6 +46,7 @@
   // ---------- Setup state ----------
   var setup = {
     numPlayers: 2,
+    opponentMode: 'human', // 'human' | 'ai' - defaults to the original human-vs-human behaviour
     players: [
       { name: 'Player 1', color: PALETTE[0].hex },
       { name: 'Player 2', color: PALETTE[1].hex },
@@ -39,6 +54,24 @@
       { name: 'Player 4', color: PALETTE[3].hex }
     ]
   };
+
+  function renderOpponentModeButtons() {
+    opponentModeButtonsEl.innerHTML = '';
+    [
+      { mode: 'human', label: 'Human vs Human' },
+      { mode: 'ai', label: 'Human vs AI' }
+    ].forEach(function (opt) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = opt.label;
+      if (opt.mode === setup.opponentMode) btn.classList.add('active');
+      btn.addEventListener('click', function () {
+        setup.opponentMode = opt.mode;
+        renderOpponentModeButtons();
+      });
+      opponentModeButtonsEl.appendChild(btn);
+    });
+  }
 
   function renderPlayerCountButtons() {
     playerCountButtonsEl.innerHTML = '';
@@ -298,12 +331,10 @@
     winScreen.classList.remove('hidden');
   }
 
-  function onCellClick(e) {
-    if (animating || !state || state.gameOver) return;
-    var r = Number(e.currentTarget.dataset.row);
-    var c = Number(e.currentTarget.dataset.col);
-    if (!GL.isValidMove(state.board, r, c, state.currentPlayerIndex)) return;
-
+  // Applies a move and animates it - shared by human clicks and AI turns so
+  // both go through byte-for-byte the same rules application and rendering
+  // path. Assumes the caller has already confirmed the move is legal.
+  function commitMove(r, c) {
     var movingPlayerId = state.currentPlayerIndex;
     var movingColor = playerColor(movingPlayerId);
     var result = GL.playMove(state, r, c);
@@ -320,7 +351,7 @@
       renderCell(r, c, preBoard);
     }
 
-    animateSteps(result.steps, movingColor, epoch).then(function () {
+    return animateSteps(result.steps, movingColor, epoch).then(function () {
       // If the game was reset while this cascade was animating, this result
       // belongs to a game that no longer exists - discard it rather than
       // overwriting the new game's state and board.
@@ -330,8 +361,41 @@
       renderTurnIndicator();
       renderPlayersStrip();
       animating = false;
-      if (state.gameOver) showWinScreen();
+      if (state.gameOver) {
+        showWinScreen();
+      } else {
+        maybePlayAiTurn(epoch);
+      }
     });
+  }
+
+  function onCellClick(e) {
+    if (animating || !state || state.gameOver || isAiTurn()) return;
+    var r = Number(e.currentTarget.dataset.row);
+    var c = Number(e.currentTarget.dataset.col);
+    if (!GL.isValidMove(state.board, r, c, state.currentPlayerIndex)) return;
+    commitMove(r, c);
+  }
+
+  // If it's currently an AI seat's turn, shows the "thinking" indicator,
+  // yields to the browser so it actually paints before the blocking search
+  // runs, then computes and plays the AI's move through the same
+  // commitMove() path a human click uses. Recurses via commitMove's own
+  // post-move check, so a run of consecutive AI seats (3p/4p games) plays
+  // itself out automatically until it's the human's turn again.
+  function maybePlayAiTurn(epoch) {
+    if (!isAiTurn() || state.gameOver) return;
+    aiThinkingEl.classList.remove('hidden');
+    setTimeout(function () {
+      if (epoch !== gameEpoch) return; // game was reset while we were waiting to start
+      var root = MCTS.runMcts(state, AI_WEIGHTS, AI_SIMULATIONS);
+      var action = MCTS.bestAction(root);
+      aiThinkingEl.classList.add('hidden');
+      if (epoch !== gameEpoch || action === null) return;
+      var r = Math.floor(action / state.cols);
+      var c = action % state.cols;
+      commitMove(r, c);
+    }, THINKING_YIELD_MS);
   }
 
   // Abandons any cascade still animating from a previous game, so it cannot
@@ -340,6 +404,7 @@
     gameEpoch++;
     animating = false;
     fxLayerEl.innerHTML = '';
+    aiThinkingEl.classList.add('hidden');
   }
 
   function startGame() {
@@ -370,6 +435,7 @@
   newGameBtn.addEventListener('click', backToSetup);
   playAgainBtn.addEventListener('click', backToSetup);
 
+  renderOpponentModeButtons();
   renderPlayerCountButtons();
   renderPlayerList();
 })();

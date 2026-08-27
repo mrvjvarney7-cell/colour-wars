@@ -7,7 +7,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -16,6 +16,11 @@
     <div class="setup-card">
       <h1 class="title">Colour Wars</h1>
       <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Opponent</div>
+        <div id="opponent-mode-buttons" class="segmented segmented-2"></div>
+      </div>
 
       <div class="field">
         <div class="field-label">Players</div>
@@ -30,7 +35,7 @@
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <!-- Lets us confirm which build a device is actually running, since mobile
            browsers cache aggressively. Bump alongside the ?v= cache buster. -->
-      <p class="build-tag">build 4</p>
+      <p class="build-tag">build 5</p>
     </div>
   </section>
 
@@ -40,6 +45,12 @@
       <div class="turn-indicator" id="turn-indicator">
         <span class="turn-dot" id="turn-dot"></span>
         <span id="turn-label">Player 1's turn</span>
+        <span id="ai-thinking" class="ai-thinking hidden">
+          <span class="ai-thinking-dot"></span>
+          <span class="ai-thinking-dot"></span>
+          <span class="ai-thinking-dot"></span>
+          AI is thinking&hellip;
+        </span>
       </div>
       <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
     </header>
@@ -61,7 +72,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=4"></script>
-  <script src="js/ui.js?v=4"></script>
+  <script src="js/gameLogic.js?v=5"></script>
+  <script src="js/ai/encode.js?v=5"></script>
+  <script src="js/ai/network.js?v=5"></script>
+  <script src="js/ai/mcts.js?v=5"></script>
+  <script src="js/ai/weights.js?v=5"></script>
+  <script src="js/ui.js?v=5"></script>
 </body>
 </html>
