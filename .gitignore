@@ -3,3 +3,23 @@ Thumbs.db
 desktop.ini
 *.log
 node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Rust build artifacts (rebuild via `cargo build` / `maturin build`)
+rust/target/
+
+# Training run outputs: model checkpoints, logs, replay state - these are
+# generated artifacts, not source. Re-run python -m colourwars.train to
+# regenerate (--resume picks up from the last committed/local best.pt if
+# you choose to keep one around).
+python/colourwars/checkpoints/
+
+# One-off manual analysis scripts (not part of the pipeline)
+python/colourwars/scratch_*.py
+
+# Claude Code local session state
+.claude/

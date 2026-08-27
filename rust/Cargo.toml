@@ -1,0 +1,32 @@
+[package]
+name = "colourwars_rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "colourwars_rs"
+# cdylib so maturin can later build this as a Python extension module;
+# rlib so `cargo test` / `cargo bench` work directly against the crate
+# without needing Python at all during the correctness-first phase.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rand = "0.8"
+rand_distr = "0.4"
+
+[dependencies.pyo3]
+version = "0.22"
+features = ["extension-module"]
+optional = true
+
+[dependencies.numpy]
+version = "0.22"
+optional = true
+
+[features]
+default = []
+python = ["pyo3", "numpy"]
+
+[profile.release]
+opt-level = 3
+lto = true
