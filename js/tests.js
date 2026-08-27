@@ -248,21 +248,23 @@
 
   // ---------- Move validation ----------
 
-  test('empty cell is valid for any player', function () {
+  test('empty cell is valid before a player has opened, invalid after', function () {
     var board = GL.createEmptyBoard(7, 7);
-    assertEqual(GL.isValidMove(board, 2, 2, 0), true);
-    assertEqual(GL.isValidMove(board, 2, 2, 1), true);
+    assertEqual(GL.isValidMove(board, 2, 2, 0, false), true);
+    assertEqual(GL.isValidMove(board, 2, 2, 1, false), true);
+    assertEqual(GL.isValidMove(board, 2, 2, 0, true), false,
+      'a player who has already opened cannot claim an empty cell directly');
   });
   test('own cell is valid, opponent cell is not', function () {
     var board = GL.createEmptyBoard(7, 7);
     board[2][2] = { owner: 0, count: 1 };
-    assertEqual(GL.isValidMove(board, 2, 2, 0), true);
-    assertEqual(GL.isValidMove(board, 2, 2, 1), false);
+    assertEqual(GL.isValidMove(board, 2, 2, 0, true), true);
+    assertEqual(GL.isValidMove(board, 2, 2, 1, true), false);
   });
   test('out of bounds is invalid', function () {
     var board = GL.createEmptyBoard(7, 7);
-    assertEqual(GL.isValidMove(board, -1, 0, 0), false);
-    assertEqual(GL.isValidMove(board, 0, 7, 0), false);
+    assertEqual(GL.isValidMove(board, -1, 0, 0, false), false);
+    assertEqual(GL.isValidMove(board, 0, 7, 0, false), false);
   });
   test('cannot play on an opponent-owned cell via playMove (no-op)', function () {
     var state = midGame(GL.createGame(2));
@@ -344,9 +346,9 @@
     assertEqual(r1.state.gameOver, false, 'players 0, 2 and 3 still hold cells');
     assertEqual(r1.state.currentPlayerIndex, 2, 'turn skips eliminated player 1');
 
-    var r2 = GL.playMove(r1.state, 6, 5);
+    var r2 = GL.playMove(r1.state, 6, 6); // player 2's own cell
     assertEqual(r2.state.currentPlayerIndex, 3);
-    var r3 = GL.playMove(r2.state, 0, 5);
+    var r3 = GL.playMove(r2.state, 0, 6); // player 3's own cell
     assertEqual(r3.state.currentPlayerIndex, 0, 'wraps back past eliminated player 1');
   });
 
@@ -394,18 +396,29 @@
 
   // ---------- Placement rules ----------
 
-  test('after the first move, the next player can place on ANY empty cell', function () {
+  test('after opening, further placements are restricted to your own cells - not any empty cell', function () {
     var state = GL.createGame(2, 7, 7);
     var r1 = GL.playMove(state, 0, 0);
     assertEqual(r1.state.currentPlayerIndex, 1);
-    assertEqual(GL.isValidMove(r1.state.board, 5, 5, 1), true);
+    assertEqual(GL.isValidMove(r1.state.board, 5, 5, 1, false), true, "player 1's opening: empty cell is fine");
     var r2 = GL.playMove(r1.state, 5, 5);
     assertEqual(r2.state.board[5][5].owner, 1);
     assertEqual(r2.state.board[5][5].count, 3, "player 1's opening places 3 dots");
     assertEqual(r2.state.currentPlayerIndex, 0);
+
+    // Player 0 has already opened - an unowned empty cell is no longer valid.
+    assertEqual(GL.isValidMove(r2.state.board, 2, 6, 0, true), false);
     var r3 = GL.playMove(r2.state, 2, 6);
-    assertEqual(r3.state.board[2][6].owner, 0);
-    assertEqual(r3.state.board[2][6].count, 1, 'non-opening placement adds a single dot');
+    assertEqual(r3.state.board[2][6].owner, null, 'placing on an unowned empty cell after opening is a no-op');
+    assertEqual(r3.state.currentPlayerIndex, 0, 'an invalid move does not consume the turn');
+
+    // Their own opening cell is still a valid target - the 4th dot reaches
+    // critical mass and detonates immediately.
+    assertEqual(GL.isValidMove(r3.state.board, 0, 0, 0, true), true);
+    var r4 = GL.playMove(r3.state, 0, 0);
+    assertEqual(r4.state.board[0][0].count, 0, 'reached 4 and exploded');
+    assertEqual(r4.state.board[0][0].owner, null);
+    assertTrue(r4.steps.length >= 1);
   });
 
   // ---------- Opening-move rule ----------
@@ -442,19 +455,18 @@
     for (var j = 0; j < 4; j++) assertEqual(GL.placementDots(s, j), 1);
   });
 
-  test("after opening, a player's later moves add exactly 1 dot", function () {
+  test("after opening, a player's later move on their own cell adds exactly 1 dot before resolving", function () {
     var state = GL.createGame(2, 7, 7);
     var r1 = GL.playMove(state, 1, 1);
     assertEqual(r1.state.board[1][1].count, 3);
     var r2 = GL.playMove(r1.state, 4, 4);
     assertEqual(r2.state.board[4][4].count, 3);
     assertEqual(GL.placementDots(r2.state, 0), 1);
-    var r3 = GL.playMove(r2.state, 5, 1);
-    assertEqual(r3.state.board[5][1].count, 1);
-    // A 4th dot on player 0's opening cell reaches the threshold and detonates.
-    var r4 = GL.playMove(r3.state, 4, 4); // player 1 tops up their own opening cell
-    assertEqual(r4.state.board[4][4].count, 0, 'reached 4 and exploded');
-    assertTrue(r4.steps.length >= 1);
+    // Player 0 has only one owned cell (their opening cell) - that is now their
+    // only legal move, and the 4th dot reaches the threshold and detonates.
+    var r3 = GL.playMove(r2.state, 1, 1);
+    assertEqual(r3.state.board[1][1].count, 0, 'reached 4 and exploded');
+    assertTrue(r3.steps.length >= 1);
   });
 
   // Render results to the page and console.

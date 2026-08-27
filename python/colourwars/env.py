@@ -64,9 +64,10 @@ class ColourWarsEnv:
         current player."""
         mask = np.zeros(self.rows * self.cols, dtype=bool)
         player = self.state.current_player_index
+        has_moved = self.state.players[player].has_moved
         for r in range(self.rows):
             for c in range(self.cols):
-                if is_valid_move(self.state.board, r, c, player):
+                if is_valid_move(self.state.board, r, c, player, has_moved):
                     mask[r * self.cols + c] = True
         return mask
 

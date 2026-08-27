@@ -205,12 +205,21 @@ pub fn apply_move(board: &Board, row: usize, col: usize, player: u8, dots: i32) 
 
 /// row/col are signed so out-of-range/negative queries (as in the JS/Python
 /// tests) can be represented without panicking on an unsigned underflow.
-pub fn is_valid_move(board: &Board, row: i32, col: i32, player: u8) -> bool {
+///
+/// A player's very first move (their opening) may target any empty cell.
+/// Every move after that may only target a cell that player already owns -
+/// the only way to gain new territory is by exploding into it via a chain
+/// reaction, never by placing directly on an empty or opponent-owned cell.
+pub fn is_valid_move(board: &Board, row: i32, col: i32, player: u8, has_moved: bool) -> bool {
     if row < 0 || col < 0 || row as usize >= board.rows || col as usize >= board.cols {
         return false;
     }
     let cell = board.get(row as usize, col as usize);
-    cell.owner.is_none() || cell.owner == Some(player)
+    if has_moved {
+        cell.owner == Some(player)
+    } else {
+        cell.owner.is_none() || cell.owner == Some(player)
+    }
 }
 
 pub fn count_cells_for_player(board: &Board, player: u8) -> usize {
@@ -289,7 +298,7 @@ pub fn play_move(state: &GameState, row: usize, col: usize) -> PlayMoveResult {
     }
 
     let player = state.current_player_index;
-    if !is_valid_move(&state.board, row as i32, col as i32, player as u8) {
+    if !is_valid_move(&state.board, row as i32, col as i32, player as u8, state.players[player].has_moved) {
         return PlayMoveResult { state: state.clone(), steps: vec![] };
     }
 
@@ -569,25 +578,26 @@ mod tests {
     // ---------- Move validation ----------
 
     #[test]
-    fn empty_cell_is_valid_for_any_player() {
+    fn empty_cell_is_valid_before_opening_invalid_after() {
         let board = Board::new(7, 7);
-        assert_eq!(is_valid_move(&board, 2, 2, 0), true);
-        assert_eq!(is_valid_move(&board, 2, 2, 1), true);
+        assert_eq!(is_valid_move(&board, 2, 2, 0, false), true);
+        assert_eq!(is_valid_move(&board, 2, 2, 1, false), true);
+        assert_eq!(is_valid_move(&board, 2, 2, 0, true), false);
     }
 
     #[test]
     fn own_cell_valid_opponent_cell_not() {
         let mut board = Board::new(7, 7);
         board.set(2, 2, Cell::new(Some(0), 1));
-        assert_eq!(is_valid_move(&board, 2, 2, 0), true);
-        assert_eq!(is_valid_move(&board, 2, 2, 1), false);
+        assert_eq!(is_valid_move(&board, 2, 2, 0, true), true);
+        assert_eq!(is_valid_move(&board, 2, 2, 1, true), false);
     }
 
     #[test]
     fn out_of_bounds_is_invalid() {
         let board = Board::new(7, 7);
-        assert_eq!(is_valid_move(&board, -1, 0, 0), false);
-        assert_eq!(is_valid_move(&board, 0, 7, 0), false);
+        assert_eq!(is_valid_move(&board, -1, 0, 0, false), false);
+        assert_eq!(is_valid_move(&board, 0, 7, 0, false), false);
     }
 
     #[test]
@@ -678,9 +688,9 @@ mod tests {
         assert_eq!(r1.state.game_over, false);
         assert_eq!(r1.state.current_player_index, 2);
 
-        let r2 = play_move(&r1.state, 6, 5);
+        let r2 = play_move(&r1.state, 6, 6); // player 2's own cell
         assert_eq!(r2.state.current_player_index, 3);
-        let r3 = play_move(&r2.state, 0, 5);
+        let r3 = play_move(&r2.state, 0, 6); // player 3's own cell
         assert_eq!(r3.state.current_player_index, 0);
     }
 
@@ -731,18 +741,29 @@ mod tests {
     // ---------- Placement rules ----------
 
     #[test]
-    fn after_first_move_next_player_can_place_on_any_empty_cell() {
+    fn after_opening_further_placements_restricted_to_own_cells() {
         let state = create_game(2, 7, 7);
         let r1 = play_move(&state, 0, 0);
         assert_eq!(r1.state.current_player_index, 1);
-        assert_eq!(is_valid_move(&r1.state.board, 5, 5, 1), true);
+        assert_eq!(is_valid_move(&r1.state.board, 5, 5, 1, false), true); // player 1's opening
         let r2 = play_move(&r1.state, 5, 5);
         assert_eq!(r2.state.board.get(5, 5).owner, Some(1));
         assert_eq!(r2.state.board.get(5, 5).count, 3);
         assert_eq!(r2.state.current_player_index, 0);
+
+        // Player 0 has already opened - an unowned empty cell is no longer valid.
+        assert_eq!(is_valid_move(&r2.state.board, 2, 6, 0, true), false);
         let r3 = play_move(&r2.state, 2, 6);
-        assert_eq!(r3.state.board.get(2, 6).owner, Some(0));
-        assert_eq!(r3.state.board.get(2, 6).count, 1);
+        assert_eq!(r3.state.board.get(2, 6).owner, None); // no-op
+        assert_eq!(r3.state.current_player_index, 0); // invalid move does not consume the turn
+
+        // Their own opening cell is still a valid target - the 4th dot
+        // reaches critical mass and detonates immediately.
+        assert_eq!(is_valid_move(&r3.state.board, 0, 0, 0, true), true);
+        let r4 = play_move(&r3.state, 0, 0);
+        assert_eq!(r4.state.board.get(0, 0).count, 0);
+        assert_eq!(r4.state.board.get(0, 0).owner, None);
+        assert!(r4.steps.len() >= 1);
     }
 
     // ---------- Opening-move rule ----------
@@ -785,17 +806,18 @@ mod tests {
     }
 
     #[test]
-    fn after_opening_later_moves_add_exactly_1_dot() {
+    fn after_opening_later_move_on_own_cell_adds_exactly_1_dot_before_resolving() {
         let state = create_game(2, 7, 7);
         let r1 = play_move(&state, 1, 1);
         assert_eq!(r1.state.board.get(1, 1).count, 3);
         let r2 = play_move(&r1.state, 4, 4);
         assert_eq!(r2.state.board.get(4, 4).count, 3);
         assert_eq!(placement_dots(&r2.state, 0), 1);
-        let r3 = play_move(&r2.state, 5, 1);
-        assert_eq!(r3.state.board.get(5, 1).count, 1);
-        let r4 = play_move(&r3.state, 4, 4); // player 1 tops up their own opening cell
-        assert_eq!(r4.state.board.get(4, 4).count, 0);
-        assert!(r4.steps.len() >= 1);
+        // Player 0's only owned cell is their opening cell - that is now
+        // their only legal move, and the 4th dot reaches the threshold and
+        // detonates.
+        let r3 = play_move(&r2.state, 1, 1);
+        assert_eq!(r3.state.board.get(1, 1).count, 0);
+        assert!(r3.steps.len() >= 1);
     }
 }

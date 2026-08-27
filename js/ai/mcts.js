@@ -110,10 +110,11 @@
     var rows = state.rows, cols = state.cols;
     var player = state.currentPlayerIndex;
 
+    var hasMoved = state.players[player].hasMoved;
     var legalActions = [];
     for (var r = 0; r < rows; r++) {
       for (var c = 0; c < cols; c++) {
-        if (GL.isValidMove(state.board, r, c, player)) legalActions.push(r * cols + c);
+        if (GL.isValidMove(state.board, r, c, player, hasMoved)) legalActions.push(r * cols + c);
       }
     }
 

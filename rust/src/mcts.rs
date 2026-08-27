@@ -147,10 +147,11 @@ impl Tree {
         let state = self.nodes[idx].state.clone().unwrap();
         let player = state.current_player_index as u8;
 
+        let has_moved = state.players[player as usize].has_moved;
         let mut legal_actions = Vec::new();
         for r in 0..state.rows {
             for c in 0..state.cols {
-                if game::is_valid_move(&state.board, r as i32, c as i32, player) {
+                if game::is_valid_move(&state.board, r as i32, c as i32, player, has_moved) {
                     legal_actions.push(r * state.cols + c);
                 }
             }
@@ -396,10 +397,11 @@ fn sample_categorical(pi: &[f32], rng: &mut impl Rng) -> usize {
 
 fn random_legal_action(state: &GameState, rng: &mut impl Rng) -> usize {
     let player = state.current_player_index as u8;
+    let has_moved = state.players[player as usize].has_moved;
     let mut legal = Vec::new();
     for r in 0..state.rows {
         for c in 0..state.cols {
-            if game::is_valid_move(&state.board, r as i32, c as i32, player) {
+            if game::is_valid_move(&state.board, r as i32, c as i32, player, has_moved) {
                 legal.push(r * state.cols + c);
             }
         }

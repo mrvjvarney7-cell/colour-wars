@@ -77,11 +77,13 @@ def part_ab(mr, net, num_games, max_moves, max_network_samples, seed):
 
         move_count = 0
         while not py_state.game_over and move_count < max_moves:
+            mover = py_state.current_player_index
+            has_moved = py_state.players[mover].has_moved
             legal = [
                 (r, c)
                 for r in range(py_state.rows)
                 for c in range(py_state.cols)
-                if is_valid_move(py_state.board, r, c, py_state.current_player_index)
+                if is_valid_move(py_state.board, r, c, mover, has_moved)
             ]
             if not legal:
                 break
@@ -154,7 +156,10 @@ def part_c_non_mutation_and_legality(mr, num_players, num_simulations):
 
     action = mr.eval("MCTS.bestAction(__root)")
     row, col = divmod(action, 7)
-    legal = mr.eval(f"GameLogic.isValidMove(__s.board, {row}, {col}, __s.currentPlayerIndex)")
+    legal = mr.eval(
+        f"GameLogic.isValidMove(__s.board, {row}, {col}, __s.currentPlayerIndex, "
+        f"__s.players[__s.currentPlayerIndex].hasMoved)"
+    )
     return {"mutated": mutated, "action": action, "legal": legal}
 
 

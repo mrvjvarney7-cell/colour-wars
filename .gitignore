@@ -17,6 +17,7 @@ rust/target/
 # regenerate (--resume picks up from the last committed/local best.pt if
 # you choose to keep one around).
 python/colourwars/checkpoints/
+python/colourwars/checkpoints_old_rule_*/
 
 # One-off manual analysis scripts (not part of the pipeline)
 python/colourwars/scratch_*.py

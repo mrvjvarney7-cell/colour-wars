@@ -93,11 +93,13 @@ def play_one_fuzz_game(num_players: int, max_moves: int, game_index: int) -> int
 
     move_count = 0
     while not py_state.game_over and move_count < max_moves:
+        mover = py_state.current_player_index
+        has_moved = py_state.players[mover].has_moved
         legal = [
             (r, c)
             for r in range(py_state.rows)
             for c in range(py_state.cols)
-            if is_valid_move(py_state.board, r, c, py_state.current_player_index)
+            if is_valid_move(py_state.board, r, c, mover, has_moved)
         ]
         if not legal:
             break

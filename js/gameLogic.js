@@ -129,9 +129,14 @@
     return { board: working, steps: steps };
   }
 
-  function isValidMove(board, row, col, player) {
+  // A player's very first move (their opening) may target any empty cell.
+  // Every move after that may only target a cell that player already owns -
+  // the only way to gain new territory is by exploding into it via a chain
+  // reaction, never by placing directly on an empty or opponent-owned cell.
+  function isValidMove(board, row, col, player, hasMoved) {
     if (row < 0 || col < 0 || row >= board.length || col >= board[0].length) return false;
     var cell = board[row][col];
+    if (hasMoved) return cell.owner === player;
     return cell.owner === null || cell.owner === player;
   }
 
@@ -207,7 +212,7 @@
       return { state: state, steps: [] };
     }
     var player = state.currentPlayerIndex;
-    if (!isValidMove(state.board, row, col, player)) {
+    if (!isValidMove(state.board, row, col, player, state.players[player].hasMoved)) {
       return { state: state, steps: [] };
     }
 

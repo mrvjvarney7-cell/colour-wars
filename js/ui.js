@@ -373,7 +373,7 @@
     if (animating || !state || state.gameOver || isAiTurn()) return;
     var r = Number(e.currentTarget.dataset.row);
     var c = Number(e.currentTarget.dataset.col);
-    if (!GL.isValidMove(state.board, r, c, state.currentPlayerIndex)) return;
+    if (!GL.isValidMove(state.board, r, c, state.currentPlayerIndex, state.players[state.currentPlayerIndex].hasMoved)) return;
     commitMove(r, c);
   }
 

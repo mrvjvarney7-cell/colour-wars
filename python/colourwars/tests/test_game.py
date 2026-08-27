@@ -229,23 +229,24 @@ def test_does_not_explode_when_below_critical_mass():
 # ---------- Move validation ----------
 
 
-def test_empty_cell_is_valid_for_any_player():
+def test_empty_cell_is_valid_before_opening_invalid_after():
     board = create_empty_board(7, 7)
-    assert is_valid_move(board, 2, 2, 0) is True
-    assert is_valid_move(board, 2, 2, 1) is True
+    assert is_valid_move(board, 2, 2, 0, False) is True
+    assert is_valid_move(board, 2, 2, 1, False) is True
+    assert is_valid_move(board, 2, 2, 0, True) is False
 
 
 def test_own_cell_valid_opponent_cell_not():
     board = create_empty_board(7, 7)
     board[2][2] = Cell(owner=0, count=1)
-    assert is_valid_move(board, 2, 2, 0) is True
-    assert is_valid_move(board, 2, 2, 1) is False
+    assert is_valid_move(board, 2, 2, 0, True) is True
+    assert is_valid_move(board, 2, 2, 1, True) is False
 
 
 def test_out_of_bounds_is_invalid():
     board = create_empty_board(7, 7)
-    assert is_valid_move(board, -1, 0, 0) is False
-    assert is_valid_move(board, 0, 7, 0) is False
+    assert is_valid_move(board, -1, 0, 0, False) is False
+    assert is_valid_move(board, 0, 7, 0, False) is False
 
 
 def test_cannot_play_on_opponent_owned_cell_via_play_move():
@@ -329,9 +330,9 @@ def test_4p_turn_order_skips_eliminated_player():
     assert r1.state.game_over is False
     assert r1.state.current_player_index == 2
 
-    r2 = play_move(r1.state, 6, 5)
+    r2 = play_move(r1.state, 6, 6)  # player 2's own cell
     assert r2.state.current_player_index == 3
-    r3 = play_move(r2.state, 0, 5)
+    r3 = play_move(r2.state, 0, 6)  # player 3's own cell
     assert r3.state.current_player_index == 0
 
 
@@ -379,18 +380,29 @@ def test_4p_game_does_not_falsely_end_while_two_or_more_hold_cells():
 # ---------- Placement rules ----------
 
 
-def test_after_first_move_next_player_can_place_on_any_empty_cell():
+def test_after_opening_further_placements_restricted_to_own_cells():
     state = create_game(2, 7, 7)
     r1 = play_move(state, 0, 0)
     assert r1.state.current_player_index == 1
-    assert is_valid_move(r1.state.board, 5, 5, 1) is True
+    assert is_valid_move(r1.state.board, 5, 5, 1, False) is True  # player 1's opening
     r2 = play_move(r1.state, 5, 5)
     assert r2.state.board[5][5].owner == 1
     assert r2.state.board[5][5].count == 3
     assert r2.state.current_player_index == 0
+
+    # Player 0 has already opened - an unowned empty cell is no longer valid.
+    assert is_valid_move(r2.state.board, 2, 6, 0, True) is False
     r3 = play_move(r2.state, 2, 6)
-    assert r3.state.board[2][6].owner == 0
-    assert r3.state.board[2][6].count == 1
+    assert r3.state.board[2][6].owner is None  # no-op
+    assert r3.state.current_player_index == 0  # invalid move does not consume the turn
+
+    # Their own opening cell is still a valid target - the 4th dot reaches
+    # critical mass and detonates immediately.
+    assert is_valid_move(r3.state.board, 0, 0, 0, True) is True
+    r4 = play_move(r3.state, 0, 0)
+    assert r4.state.board[0][0].count == 0
+    assert r4.state.board[0][0].owner is None
+    assert len(r4.steps) >= 1
 
 
 # ---------- Opening-move rule ----------
@@ -428,18 +440,18 @@ def test_opening_bonus_is_per_player():
         assert placement_dots(s, j) == 1
 
 
-def test_after_opening_later_moves_add_exactly_1_dot():
+def test_after_opening_later_move_on_own_cell_adds_exactly_1_dot_before_resolving():
     state = create_game(2, 7, 7)
     r1 = play_move(state, 1, 1)
     assert r1.state.board[1][1].count == 3
     r2 = play_move(r1.state, 4, 4)
     assert r2.state.board[4][4].count == 3
     assert placement_dots(r2.state, 0) == 1
-    r3 = play_move(r2.state, 5, 1)
-    assert r3.state.board[5][1].count == 1
-    r4 = play_move(r3.state, 4, 4)
-    assert r4.state.board[4][4].count == 0
-    assert len(r4.steps) >= 1
+    # Player 0's only owned cell is their opening cell - that is now their
+    # only legal move, and the 4th dot reaches the threshold and detonates.
+    r3 = play_move(r2.state, 1, 1)
+    assert r3.state.board[1][1].count == 0
+    assert len(r3.steps) >= 1
 
 
 if __name__ == "__main__":

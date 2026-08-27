@@ -90,15 +90,17 @@ impl PyGameState {
     }
 
     fn is_valid_move(&self, row: i32, col: i32, player: u8) -> bool {
-        game::is_valid_move(&self.inner.board, row, col, player)
+        let has_moved = self.inner.players[player as usize].has_moved;
+        game::is_valid_move(&self.inner.board, row, col, player, has_moved)
     }
 
     fn legal_moves(&self) -> Vec<(usize, usize)> {
         let player = self.inner.current_player_index as u8;
+        let has_moved = self.inner.players[player as usize].has_moved;
         let mut out = Vec::new();
         for r in 0..self.inner.rows {
             for c in 0..self.inner.cols {
-                if game::is_valid_move(&self.inner.board, r as i32, c as i32, player) {
+                if game::is_valid_move(&self.inner.board, r as i32, c as i32, player, has_moved) {
                     out.push((r, c));
                 }
             }

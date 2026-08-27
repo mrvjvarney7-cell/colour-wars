@@ -182,10 +182,16 @@ def apply_move(
     return ApplyMoveResult(board=working, steps=steps)
 
 
-def is_valid_move(board: Board, row: int, col: int, player: int) -> bool:
+def is_valid_move(board: Board, row: int, col: int, player: int, has_moved: bool) -> bool:
+    """A player's very first move (their opening) may target any empty cell.
+    Every move after that may only target a cell that player already owns -
+    the only way to gain new territory is by exploding into it via a chain
+    reaction, never by placing directly on an empty or opponent-owned cell."""
     if row < 0 or col < 0 or row >= len(board) or col >= len(board[0]):
         return False
     cell = board[row][col]
+    if has_moved:
+        return cell.owner == player
     return cell.owner is None or cell.owner == player
 
 
@@ -291,7 +297,7 @@ def play_move(state: GameState, row: int, col: int) -> PlayMoveResult:
         return PlayMoveResult(state=state, steps=[])
 
     player = state.current_player_index
-    if not is_valid_move(state.board, row, col, player):
+    if not is_valid_move(state.board, row, col, player, state.players[player].has_moved):
         return PlayMoveResult(state=state, steps=[])
 
     dots = placement_dots(state, player)

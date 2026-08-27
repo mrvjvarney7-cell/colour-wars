@@ -66,7 +66,7 @@ def main():
                     continue
                 r, c = int(parts[0]), int(parts[1])
                 if (r, c) not in legal_rc:
-                    print("Illegal move - cell must be empty or one you already own, and in bounds.")
+                    print("Illegal move - must be an empty cell (opening move only) or a cell you already own, and in bounds.")
                     continue
                 action = r * env.cols + c
                 break
