@@ -193,6 +193,20 @@ body {
   opacity: 0.5;
 }
 
+.ai-version-tag {
+  margin: 6px 0 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.ai-version-tag-ingame {
+  width: 100%;
+  margin: -4px 0 2px;
+  padding: 0 4px;
+}
+
 /* ---------- Game screen ---------- */
 
 #game-screen {

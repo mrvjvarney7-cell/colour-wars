@@ -27,6 +27,8 @@
   var winScreen = document.getElementById('win-screen');
 
   var opponentModeButtonsEl = document.getElementById('opponent-mode-buttons');
+  var aiVersionTagEl = document.getElementById('ai-version-tag');
+  var aiVersionTagIngameEl = document.getElementById('ai-version-tag-ingame');
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
   var playerListEl = document.getElementById('player-list');
   var startGameBtn = document.getElementById('start-game-btn');
@@ -55,6 +57,29 @@
     ]
   };
 
+  // States which trained checkpoint the browser AI is actually running, so
+  // it's never a mystery which version you're playing against. AI_VERSION
+  // is written by python -m colourwars.export_weights alongside AI_WEIGHTS.
+  function formatAiVersionText() {
+    var v = window.AI_VERSION;
+    if (!v) return 'AI version unknown';
+    var label = (v.iteration != null) ? ('AI: iteration ' + v.iteration) : ('AI: ' + v.checkpointFile);
+    if (typeof v.winRateVsRandom === 'number') {
+      label += ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+    }
+    if (v.promoted) label += ' · promoted';
+    return label;
+  }
+
+  function updateAiVersionTags() {
+    var show = setup.opponentMode === 'ai';
+    var text = formatAiVersionText();
+    aiVersionTagEl.textContent = text;
+    aiVersionTagEl.classList.toggle('hidden', !show);
+    aiVersionTagIngameEl.textContent = text;
+    aiVersionTagIngameEl.classList.toggle('hidden', !show);
+  }
+
   function renderOpponentModeButtons() {
     opponentModeButtonsEl.innerHTML = '';
     [
@@ -71,6 +96,7 @@
       });
       opponentModeButtonsEl.appendChild(btn);
     });
+    updateAiVersionTags();
   }
 
   function renderPlayerCountButtons() {
@@ -419,6 +445,7 @@
     renderBoard(state.board);
     renderTurnIndicator();
     renderPlayersStrip();
+    updateAiVersionTags();
     winScreen.classList.add('hidden');
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');

@@ -12,8 +12,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
+import re
 
 import torch
 
@@ -22,7 +24,60 @@ from colourwars.game import COLS, ROWS
 from colourwars.network import ColourWarsNet
 
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "checkpoints")
+TRAINING_LOG_PATH = os.path.join(CHECKPOINT_DIR, "training_log.jsonl")
 DEFAULT_OUT = os.path.join(os.path.dirname(__file__), "..", "..", "js", "ai", "weights.js")
+
+_ITER_RE = re.compile(r"iter_(\d+)\.pt$")
+
+
+def _read_training_log(path: str) -> list:
+    if not os.path.exists(path):
+        return []
+    records = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+    return records
+
+
+def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_LOG_PATH) -> dict:
+    """Best-effort metadata about which training iteration a checkpoint is
+    from, so the browser can display it. Falls back to just the filename
+    if the iteration number or its log record can't be found."""
+    checkpoint_file = os.path.basename(checkpoint_path)
+    info = {
+        "checkpointFile": checkpoint_file,
+        "iteration": None,
+        "winRateVsRandom": None,
+        "winRateVsBest": None,
+        "promoted": None,
+        "exportedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+    match = _ITER_RE.search(checkpoint_file)
+    if match:
+        iteration = int(match.group(1))
+        info["iteration"] = iteration
+        for record in _read_training_log(training_log_path):
+            if record.get("iteration") == iteration:
+                info["winRateVsRandom"] = record.get("win_rate_vs_random")
+                info["winRateVsBest"] = record.get("win_rate_vs_best")
+                info["promoted"] = record.get("promoted")
+                break
+    elif checkpoint_file == "best.pt":
+        # best.pt is whichever candidate most recently beat the previous
+        # best - that's the last record with promoted=True, if any.
+        for record in reversed(_read_training_log(training_log_path)):
+            if record.get("promoted"):
+                info["iteration"] = record.get("iteration")
+                info["winRateVsRandom"] = record.get("win_rate_vs_random")
+                info["winRateVsBest"] = record.get("win_rate_vs_best")
+                info["promoted"] = True
+                break
+
+    return info
 
 
 # float32 only carries ~7 significant decimal digits; json.dump's default
@@ -99,6 +154,7 @@ def main():
     net.load_state_dict(torch.load(args.checkpoint, map_location="cpu"))
 
     data = export_weights(net)
+    version_info = derive_version_info(args.checkpoint)
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as f:
@@ -112,10 +168,14 @@ def main():
         f.write("var AI_WEIGHTS = ")
         json.dump(data, f)
         f.write(";\n")
+        f.write("var AI_VERSION = ")
+        json.dump(version_info, f)
+        f.write(";\n")
 
     n_params = sum(1 for _ in _flatten(data))
     size_kb = os.path.getsize(args.out) / 1024
     print(f"Wrote {args.out} ({size_kb:.0f} KB, {n_params} scalar weights) from {args.checkpoint}")
+    print(f"Version info: {version_info}")
 
 
 def _flatten(obj):
