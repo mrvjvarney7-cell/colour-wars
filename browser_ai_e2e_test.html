@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 22</p>
+      <p class="build-tag">build 23</p>
     </div>
   </section>
 
@@ -60,12 +60,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=22"></script>
-  <script src="js/ai/encode.js?v=22"></script>
-  <script src="js/ai/network.js?v=22"></script>
-  <script src="js/ai/mcts.js?v=22"></script>
-  <script src="js/ai/weights.js?v=22"></script>
-  <script src="js/ui.js?v=22"></script>
+  <script src="js/gameLogic.js?v=23"></script>
+  <script src="js/ai/encode.js?v=23"></script>
+  <script src="js/ai/network.js?v=23"></script>
+  <script src="js/ai/mcts.js?v=23"></script>
+  <script src="js/ai/weights.js?v=23"></script>
+  <script src="js/ui.js?v=23"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -134,6 +134,13 @@
         var cellsBefore = document.querySelectorAll('.cell').length;
         if (cellsBefore !== 49) return fail('expected 49 cells, got ' + cellsBefore);
 
+        // Before any move, every cell is a legal opening target - all 49
+        // should be highlighted.
+        var legalBeforeOpening = document.querySelectorAll('.cell.legal-move').length;
+        if (legalBeforeOpening !== 49) {
+          return fail('expected all 49 cells highlighted as legal before opening, got ' + legalBeforeOpening);
+        }
+
         // Human (seat 0) opens in the center - always legal on an empty board.
         var centerCell = document.querySelector('.cell[data-row="3"][data-col="3"]');
         if (!centerCell) return fail('center cell not found');
@@ -175,18 +182,48 @@
                 count: cluster.getAttribute('data-count')
               });
             });
+
+            // Back to the human's turn, and they've already opened - only
+            // their own cell (3,3) should be highlighted as legal now, and
+            // clicking anywhere else should shake, not silently do nothing.
+            var ownCell = document.querySelector('.cell[data-row="3"][data-col="3"]');
+            var ownCellLegalCheck = { ok: true };
+            if (!ownCell.classList.contains('legal-move')) {
+              ownCellLegalCheck = { ok: false, reason: 'own cell (3,3) should be legal-move after opening' };
+            }
+            var allCells = document.querySelectorAll('.cell');
+            var emptyUnownedCell = null;
+            for (var i = 0; i < allCells.length; i++) {
+              if (!allCells[i].classList.contains('owned')) { emptyUnownedCell = allCells[i]; break; }
+            }
+            var illegalCellCheck = { ok: true };
+            if (!emptyUnownedCell) {
+              illegalCellCheck = { ok: false, reason: 'no empty cell found to test' };
+            } else if (emptyUnownedCell.classList.contains('legal-move')) {
+              illegalCellCheck = { ok: false, reason: 'unowned empty cell should not be legal-move' };
+            } else {
+              emptyUnownedCell.click();
+              var shook = emptyUnownedCell.classList.contains('shake');
+              var ownedUnchanged = document.querySelectorAll('.cell.owned').length === ownedCells;
+              if (!shook || !ownedUnchanged) {
+                illegalCellCheck = { ok: false, reason: 'illegal click should shake and not change board', shook: shook, ownedUnchanged: ownedUnchanged };
+              }
+            }
+
             // Note: AI move timing is NOT measured here - this page runs
             // under --virtual-time-budget, which freezes performance.now()
             // during synchronous execution (it only advances virtual time
             // for pending timers/idle gaps). See run_ai_move_timing.py /
             // ai_move_timing_test.html for a real wall-clock measurement.
             report({
-              ok: errors.length === 0,
+              ok: errors.length === 0 && ownCellLegalCheck.ok && illegalCellCheck.ok,
               errors: errors,
               thinkingWasShown: thinkingWasShown,
               ownedCellCount: ownedCells,
               cells: summary,
-              turnLabel: document.getElementById('turn-label').textContent
+              turnLabel: document.getElementById('turn-label').textContent,
+              ownCellLegalCheck: ownCellLegalCheck,
+              illegalCellCheck: illegalCellCheck
             });
           } catch (e) {
             fail('exception in finish(): ' + e.message);

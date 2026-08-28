@@ -401,6 +401,14 @@ body {
   75% { transform: translate(-1px, -1px); }
 }
 
+/* Marks every cell the current human player may legally click - after their
+   opening move that's only their own cells, which is easy to mistake for a
+   broken board if there's no indication of where a click will actually do
+   something. */
+.cell.legal-move {
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
 .dot-cluster {
   position: relative;
   width: 62%;

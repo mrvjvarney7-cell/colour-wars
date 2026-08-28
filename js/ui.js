@@ -256,6 +256,28 @@
     turnDotEl.style.color = p.color;
   }
 
+  // Highlights every cell the current player may legally click. Without
+  // this, a player's second-and-later moves being restricted to their own
+  // cells (see isValidMove) is invisible until they click somewhere that
+  // silently does nothing - easy to mistake for the site being broken.
+  function updateLegalMoveHighlights() {
+    for (var r = 0; r < cellEls.length; r++) {
+      for (var c = 0; c < cellEls[r].length; c++) {
+        cellEls[r][c].classList.remove('legal-move');
+      }
+    }
+    if (!state || state.gameOver || isAiTurn()) return;
+    var player = state.currentPlayerIndex;
+    var hasMoved = state.players[player].hasMoved;
+    for (var r2 = 0; r2 < state.rows; r2++) {
+      for (var c2 = 0; c2 < state.cols; c2++) {
+        if (GL.isValidMove(state.board, r2, c2, player, hasMoved)) {
+          cellEls[r2][c2].classList.add('legal-move');
+        }
+      }
+    }
+  }
+
   function renderPlayersStrip() {
     playersStripEl.innerHTML = '';
     state.players.forEach(function (p, i) {
@@ -390,6 +412,7 @@
       renderBoard(state.board);
       renderTurnIndicator();
       renderPlayersStrip();
+      updateLegalMoveHighlights();
       animating = false;
       if (state.gameOver) {
         showWinScreen();
@@ -403,7 +426,18 @@
     if (animating || !state || state.gameOver || isAiTurn()) return;
     var r = Number(e.currentTarget.dataset.row);
     var c = Number(e.currentTarget.dataset.col);
-    if (!GL.isValidMove(state.board, r, c, state.currentPlayerIndex, state.players[state.currentPlayerIndex].hasMoved)) return;
+    if (!GL.isValidMove(state.board, r, c, state.currentPlayerIndex, state.players[state.currentPlayerIndex].hasMoved)) {
+      // Give SOME feedback rather than doing nothing at all - a click on an
+      // illegal cell (most commonly: any cell you don't already own, once
+      // you've made your opening move) used to be entirely silent, which is
+      // easy to mistake for the board not responding at all.
+      var cellEl = e.currentTarget;
+      cellEl.classList.remove('shake');
+      void cellEl.offsetWidth; // restart animation
+      cellEl.classList.add('shake');
+      setTimeout(function () { cellEl.classList.remove('shake'); }, 300);
+      return;
+    }
     commitMove(r, c);
   }
 
@@ -450,6 +484,7 @@
     renderBoard(state.board);
     renderTurnIndicator();
     renderPlayersStrip();
+    updateLegalMoveHighlights();
     // Screen transition happens before the more decorative updateAiVersionTags()
     // call - if that (or any future addition here) throws, the player still
     // reaches a playable board instead of getting stuck on the setup screen.
