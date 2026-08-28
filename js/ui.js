@@ -36,6 +36,7 @@
   var turnLabelEl = document.getElementById('turn-label');
   var turnDotEl = document.getElementById('turn-dot');
   var playersStripEl = document.getElementById('players-strip');
+  var statsPanelEl = document.getElementById('stats-panel');
   var boardEl = document.getElementById('board');
   var fxLayerEl = document.getElementById('fx-layer');
   var boardWrapEl = document.querySelector('.board-wrap');
@@ -300,6 +301,63 @@
     });
   }
 
+  // Squares and dots controlled by each player, plus each figure as a share
+  // of the total currently in play (i.e. across all owned cells, not the
+  // full 49-cell board) - so the percentages always sum to 100% and reflect
+  // "how much of the contested board" rather than "how much of the board is
+  // even claimed yet", which would just read as near-0% for most of a game.
+  function computeBoardStats() {
+    var perPlayer = state.players.map(function () { return { cells: 0, dots: 0 }; });
+    for (var r = 0; r < state.board.length; r++) {
+      for (var c = 0; c < state.board[0].length; c++) {
+        var cell = state.board[r][c];
+        if (cell.owner !== null) {
+          perPlayer[cell.owner].cells += 1;
+          perPlayer[cell.owner].dots += cell.count;
+        }
+      }
+    }
+    var totalCells = perPlayer.reduce(function (sum, s) { return sum + s.cells; }, 0);
+    var totalDots = perPlayer.reduce(function (sum, s) { return sum + s.dots; }, 0);
+    return { perPlayer: perPlayer, totalCells: totalCells, totalDots: totalDots };
+  }
+
+  function renderStatsPanel() {
+    statsPanelEl.innerHTML = '';
+    var boardStats = computeBoardStats();
+    state.players.forEach(function (p, i) {
+      var s = boardStats.perPlayer[i];
+      var cellPct = boardStats.totalCells > 0 ? Math.round((s.cells / boardStats.totalCells) * 100) : 0;
+      var dotPct = boardStats.totalDots > 0 ? Math.round((s.dots / boardStats.totalDots) * 100) : 0;
+
+      var row = document.createElement('div');
+      row.className = 'stat-row';
+      if (!p.active) row.classList.add('eliminated');
+
+      var dot = document.createElement('span');
+      dot.className = 'stat-dot';
+      dot.style.background = p.color;
+      row.appendChild(dot);
+
+      var name = document.createElement('span');
+      name.className = 'stat-name';
+      name.textContent = p.name;
+      row.appendChild(name);
+
+      var squares = document.createElement('span');
+      squares.className = 'stat-value';
+      squares.innerHTML = '<b>' + s.cells + '</b> sq (' + cellPct + '%)';
+      row.appendChild(squares);
+
+      var dots = document.createElement('span');
+      dots.className = 'stat-value';
+      dots.innerHTML = '<b>' + s.dots + '</b> dots (' + dotPct + '%)';
+      row.appendChild(dots);
+
+      statsPanelEl.appendChild(row);
+    });
+  }
+
   function cellCenter(r, c) {
     var cellRect = cellEls[r][c].getBoundingClientRect();
     var wrapRect = boardWrapEl.getBoundingClientRect();
@@ -415,6 +473,7 @@
       renderBoard(state.board);
       renderTurnIndicator();
       renderPlayersStrip();
+      renderStatsPanel();
       updateLegalMoveHighlights();
       animating = false;
       if (state.gameOver) {
@@ -487,6 +546,7 @@
     renderBoard(state.board);
     renderTurnIndicator();
     renderPlayersStrip();
+    renderStatsPanel();
     updateLegalMoveHighlights();
     // Screen transition happens before the more decorative updateAiVersionTags()
     // call - if that (or any future addition here) throws, the player still

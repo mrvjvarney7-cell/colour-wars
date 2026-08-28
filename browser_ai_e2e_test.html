@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 24</p>
+      <p class="build-tag">build 25</p>
     </div>
   </section>
 
@@ -45,6 +45,7 @@
     <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
 
     <div class="players-strip" id="players-strip"></div>
+    <div class="stats-panel" id="stats-panel"></div>
 
     <div class="board-wrap">
       <div class="board" id="board"></div>
@@ -60,12 +61,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=24"></script>
-  <script src="js/ai/encode.js?v=24"></script>
-  <script src="js/ai/network.js?v=24"></script>
-  <script src="js/ai/mcts.js?v=24"></script>
-  <script src="js/ai/weights.js?v=24"></script>
-  <script src="js/ui.js?v=24"></script>
+  <script src="js/gameLogic.js?v=25"></script>
+  <script src="js/ai/encode.js?v=25"></script>
+  <script src="js/ai/network.js?v=25"></script>
+  <script src="js/ai/mcts.js?v=25"></script>
+  <script src="js/ai/weights.js?v=25"></script>
+  <script src="js/ui.js?v=25"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -210,20 +211,43 @@
               }
             }
 
+            // Stats panel check: both players have opened with exactly 3 dots
+            // on exactly 1 cell each at this point, so each should read
+            // "1 sq (50%)" / "3 dots (50%)".
+            var statRows = document.querySelectorAll('#stats-panel .stat-row');
+            var statsCheck = { ok: true };
+            if (statRows.length !== 2) {
+              statsCheck = { ok: false, reason: 'expected 2 stat rows, got ' + statRows.length };
+            } else {
+              statRows.forEach(function (row, idx) {
+                var values = row.querySelectorAll('.stat-value');
+                var squaresText = values[0].textContent;
+                var dotsText = values[1].textContent;
+                if (squaresText.indexOf('1') === -1 || squaresText.indexOf('50%') === -1 ||
+                    dotsText.indexOf('3') === -1 || dotsText.indexOf('50%') === -1) {
+                  statsCheck = {
+                    ok: false,
+                    reason: 'row ' + idx + ' stats look wrong: "' + squaresText + '" / "' + dotsText + '"'
+                  };
+                }
+              });
+            }
+
             // Note: AI move timing is NOT measured here - this page runs
             // under --virtual-time-budget, which freezes performance.now()
             // during synchronous execution (it only advances virtual time
             // for pending timers/idle gaps). See run_ai_move_timing.py /
             // ai_move_timing_test.html for a real wall-clock measurement.
             report({
-              ok: errors.length === 0 && ownCellLegalCheck.ok && illegalCellCheck.ok,
+              ok: errors.length === 0 && ownCellLegalCheck.ok && illegalCellCheck.ok && statsCheck.ok,
               errors: errors,
               thinkingWasShown: thinkingWasShown,
               ownedCellCount: ownedCells,
               cells: summary,
               turnLabel: document.getElementById('turn-label').textContent,
               ownCellLegalCheck: ownCellLegalCheck,
-              illegalCellCheck: illegalCellCheck
+              illegalCellCheck: illegalCellCheck,
+              statsCheck: statsCheck
             });
           } catch (e) {
             fail('exception in finish(): ' + e.message);

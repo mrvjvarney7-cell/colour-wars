@@ -326,6 +326,55 @@ body {
   border-color: var(--chip-color, var(--accent));
 }
 
+.stats-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 8px 10px;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.stat-row.eliminated {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.stat-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.stat-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-value {
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.stat-value b {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .board-wrap {
   position: relative;
   width: 100%;
