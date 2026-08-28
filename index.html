@@ -7,7 +7,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 
@@ -18,25 +18,20 @@
       <p class="subtitle">Pass-and-play chain reaction strategy</p>
 
       <div class="field">
-        <div class="field-label">Opponent</div>
-        <div id="opponent-mode-buttons" class="segmented segmented-2"></div>
-        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
-      </div>
-
-      <div class="field">
         <div class="field-label">Players</div>
         <div id="player-count-buttons" class="segmented"></div>
       </div>
 
       <div class="field">
-        <div class="field-label">Colours</div>
+        <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
+        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <!-- Lets us confirm which build a device is actually running, since mobile
            browsers cache aggressively. Bump alongside the ?v= cache buster. -->
-      <p class="build-tag">build 14</p>
+      <p class="build-tag">build 15</p>
     </div>
   </section>
 
@@ -74,11 +69,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=14"></script>
-  <script src="js/ai/encode.js?v=14"></script>
-  <script src="js/ai/network.js?v=14"></script>
-  <script src="js/ai/mcts.js?v=14"></script>
-  <script src="js/ai/weights.js?v=14"></script>
-  <script src="js/ui.js?v=14"></script>
+  <script src="js/gameLogic.js?v=15"></script>
+  <script src="js/ai/encode.js?v=15"></script>
+  <script src="js/ai/network.js?v=15"></script>
+  <script src="js/ai/mcts.js?v=15"></script>
+  <script src="js/ai/weights.js?v=15"></script>
+  <script src="js/ui.js?v=15"></script>
 </body>
 </html>

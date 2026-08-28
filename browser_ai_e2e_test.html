@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 
@@ -13,23 +13,18 @@
       <p class="subtitle">Pass-and-play chain reaction strategy</p>
 
       <div class="field">
-        <div class="field-label">Opponent</div>
-        <div id="opponent-mode-buttons" class="segmented segmented-2"></div>
-        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
-      </div>
-
-      <div class="field">
         <div class="field-label">Players</div>
         <div id="player-count-buttons" class="segmented"></div>
       </div>
 
       <div class="field">
-        <div class="field-label">Colours</div>
+        <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
+        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 14</p>
+      <p class="build-tag">build 15</p>
     </div>
   </section>
 
@@ -65,12 +60,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=14"></script>
-  <script src="js/ai/encode.js?v=14"></script>
-  <script src="js/ai/network.js?v=14"></script>
-  <script src="js/ai/mcts.js?v=14"></script>
-  <script src="js/ai/weights.js?v=14"></script>
-  <script src="js/ui.js?v=14"></script>
+  <script src="js/gameLogic.js?v=15"></script>
+  <script src="js/ai/encode.js?v=15"></script>
+  <script src="js/ai/network.js?v=15"></script>
+  <script src="js/ai/mcts.js?v=15"></script>
+  <script src="js/ai/weights.js?v=15"></script>
+  <script src="js/ui.js?v=15"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -89,14 +84,6 @@
         document.title = 'RESULT:' + JSON.stringify(obj);
       }
 
-      function findButtonByText(container, text) {
-        var btns = container.querySelectorAll('button');
-        for (var i = 0; i < btns.length; i++) {
-          if (btns[i].textContent.trim() === text) return btns[i];
-        }
-        return null;
-      }
-
       function fail(reason) {
         report({ ok: false, reason: reason, errors: errors });
       }
@@ -108,20 +95,23 @@
         if (typeof MCTS === 'undefined') return fail('MCTS did not load');
         if (typeof AI_WEIGHTS === 'undefined') return fail('AI_WEIGHTS did not load');
 
-        var aiBtn = findButtonByText(document.getElementById('opponent-mode-buttons'), 'Human vs AI');
-        if (!aiBtn) return fail('Human vs AI button not found');
-        aiBtn.click();
-        // renderOpponentModeButtons() rebuilds the button DOM on click (same
-        // pattern as the existing player-count buttons), so re-query rather
+        // Toggle player 2 (seat 1) to AI, leaving player 1 (seat 0) human -
+        // exercises the per-seat AI toggle exactly as a real player would use it.
+        var rowsBefore = document.querySelectorAll('#player-list .player-row');
+        if (rowsBefore.length !== 2) return fail('expected 2 player rows by default, got ' + rowsBefore.length);
+        var seat1ToggleBefore = rowsBefore[1].querySelector('.ai-toggle-btn');
+        if (!seat1ToggleBefore) return fail('AI toggle button not found on player 2 row');
+        seat1ToggleBefore.click();
+        // renderPlayerList() rebuilds the row DOM on click, so re-query rather
         // than reuse the now-detached original reference.
-        var aiBtnAfter = findButtonByText(document.getElementById('opponent-mode-buttons'), 'Human vs AI');
-        if (!aiBtnAfter || !aiBtnAfter.classList.contains('active')) {
-          return fail('Human vs AI button did not become active after click');
+        var seat1ToggleAfter = document.querySelectorAll('#player-list .player-row')[1].querySelector('.ai-toggle-btn');
+        if (!seat1ToggleAfter || !seat1ToggleAfter.classList.contains('active')) {
+          return fail('player 2 AI toggle did not become active after click');
         }
 
         var versionTag = document.getElementById('ai-version-tag');
         if (versionTag.classList.contains('hidden')) {
-          return fail('AI version tag should be visible once Human vs AI is selected');
+          return fail('AI version tag should be visible once a seat is toggled to AI');
         }
         if (typeof AI_VERSION === 'undefined' || !versionTag.textContent.includes('AI: iteration')) {
           return fail('AI version tag does not state the iteration: "' + versionTag.textContent + '"');

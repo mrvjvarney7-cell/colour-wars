@@ -9,16 +9,17 @@
   var POP_MS = 260;
 
   // ---------- AI opponent ----------
-  // The human always plays seat 0; every other seat is AI-controlled when
-  // opponentMode is 'ai'. MCTS simulations/move is a plain tradeoff between
-  // move strength and "AI is thinking" wait time - tune here if needed.
+  // Each seat is independently Human or AI (setup.players[i].isAI, toggled
+  // per-player in the setup screen) - any mix works, from all-human to a
+  // single human among AI opponents to a fully AI-vs-AI game. MCTS
+  // simulations/move is a plain tradeoff between move strength and "AI is
+  // thinking" wait time - tune here if needed.
   var AI_SIMULATIONS = 60;
-  var HUMAN_SEAT = 0;
   var THINKING_YIELD_MS = 50; // lets the "AI is thinking" indicator paint before the blocking search runs
   var aiThinkingEl = document.getElementById('ai-thinking');
 
   function isAiTurn() {
-    return state && setup.opponentMode === 'ai' && state.currentPlayerIndex !== HUMAN_SEAT;
+    return state && state.players[state.currentPlayerIndex].isAI;
   }
 
   // ---------- DOM refs ----------
@@ -26,7 +27,6 @@
   var gameScreen = document.getElementById('game-screen');
   var winScreen = document.getElementById('win-screen');
 
-  var opponentModeButtonsEl = document.getElementById('opponent-mode-buttons');
   var aiVersionTagEl = document.getElementById('ai-version-tag');
   var aiVersionTagIngameEl = document.getElementById('ai-version-tag-ingame');
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
@@ -48,12 +48,11 @@
   // ---------- Setup state ----------
   var setup = {
     numPlayers: 2,
-    opponentMode: 'human', // 'human' | 'ai' - defaults to the original human-vs-human behaviour
     players: [
-      { name: 'Player 1', color: PALETTE[0].hex },
-      { name: 'Player 2', color: PALETTE[1].hex },
-      { name: 'Player 3', color: PALETTE[2].hex },
-      { name: 'Player 4', color: PALETTE[3].hex }
+      { name: 'Player 1', color: PALETTE[0].hex, isAI: false },
+      { name: 'Player 2', color: PALETTE[1].hex, isAI: false },
+      { name: 'Player 3', color: PALETTE[2].hex, isAI: false },
+      { name: 'Player 4', color: PALETTE[3].hex, isAI: false }
     ]
   };
 
@@ -71,32 +70,17 @@
     return label;
   }
 
+  function anyAiSeatsInPlay() {
+    return setup.players.slice(0, setup.numPlayers).some(function (p) { return p.isAI; });
+  }
+
   function updateAiVersionTags() {
-    var show = setup.opponentMode === 'ai';
+    var show = anyAiSeatsInPlay();
     var text = formatAiVersionText();
     aiVersionTagEl.textContent = text;
     aiVersionTagEl.classList.toggle('hidden', !show);
     aiVersionTagIngameEl.textContent = text;
     aiVersionTagIngameEl.classList.toggle('hidden', !show);
-  }
-
-  function renderOpponentModeButtons() {
-    opponentModeButtonsEl.innerHTML = '';
-    [
-      { mode: 'human', label: 'Human vs Human' },
-      { mode: 'ai', label: 'Human vs AI' }
-    ].forEach(function (opt) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = opt.label;
-      if (opt.mode === setup.opponentMode) btn.classList.add('active');
-      btn.addEventListener('click', function () {
-        setup.opponentMode = opt.mode;
-        renderOpponentModeButtons();
-      });
-      opponentModeButtonsEl.appendChild(btn);
-    });
-    updateAiVersionTags();
   }
 
   function renderPlayerCountButtons() {
@@ -165,9 +149,22 @@
         });
         row.appendChild(swatches);
 
+        var aiToggle = document.createElement('button');
+        aiToggle.type = 'button';
+        aiToggle.className = 'ai-toggle-btn';
+        aiToggle.textContent = p.isAI ? 'AI' : 'Human';
+        aiToggle.setAttribute('aria-label', 'Player ' + (i + 1) + ' is ' + (p.isAI ? 'AI' : 'Human') + ' - tap to toggle');
+        if (p.isAI) aiToggle.classList.add('active');
+        aiToggle.addEventListener('click', function () {
+          p.isAI = !p.isAI;
+          renderPlayerList();
+        });
+        row.appendChild(aiToggle);
+
         playerListEl.appendChild(row);
       })(i);
     }
+    updateAiVersionTags();
   }
 
   // ---------- Game state ----------
@@ -439,6 +436,7 @@
     for (var i = 0; i < setup.numPlayers; i++) {
       game.players[i].name = setup.players[i].name;
       game.players[i].color = setup.players[i].color;
+      game.players[i].isAI = setup.players[i].isAI;
     }
     state = game;
     buildBoardDom(state.rows, state.cols);
@@ -462,7 +460,6 @@
   newGameBtn.addEventListener('click', backToSetup);
   playAgainBtn.addEventListener('click', backToSetup);
 
-  renderOpponentModeButtons();
   renderPlayerCountButtons();
   renderPlayerList();
 })();
