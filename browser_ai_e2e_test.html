@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 25</p>
+      <p class="build-tag">build 26</p>
     </div>
   </section>
 
@@ -61,12 +61,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=25"></script>
-  <script src="js/ai/encode.js?v=25"></script>
-  <script src="js/ai/network.js?v=25"></script>
-  <script src="js/ai/mcts.js?v=25"></script>
-  <script src="js/ai/weights.js?v=25"></script>
-  <script src="js/ui.js?v=25"></script>
+  <script src="js/gameLogic.js?v=26"></script>
+  <script src="js/ai/encode.js?v=26"></script>
+  <script src="js/ai/network.js?v=26"></script>
+  <script src="js/ai/mcts.js?v=26"></script>
+  <script src="js/ai/weights.js?v=26"></script>
+  <script src="js/ui.js?v=26"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -212,8 +212,11 @@
             }
 
             // Stats panel check: both players have opened with exactly 3 dots
-            // on exactly 1 cell each at this point, so each should read
-            // "1 sq (50%)" / "3 dots (50%)".
+            // on exactly 1 cell each at this point, on a 7x7 (49-cell) board
+            // with critical mass 4 (so 3 dots/cell max capacity, 147 total) -
+            // percentages are of the WHOLE board, not a share between
+            // players, so each should read "1 sq (2%)" / "3 dots (2%)"
+            // (1/49 and 3/147 both round to 2%).
             var statRows = document.querySelectorAll('#stats-panel .stat-row');
             var statsCheck = { ok: true };
             if (statRows.length !== 2) {
@@ -223,8 +226,8 @@
                 var values = row.querySelectorAll('.stat-value');
                 var squaresText = values[0].textContent;
                 var dotsText = values[1].textContent;
-                if (squaresText.indexOf('1') === -1 || squaresText.indexOf('50%') === -1 ||
-                    dotsText.indexOf('3') === -1 || dotsText.indexOf('50%') === -1) {
+                if (squaresText.indexOf('1') === -1 || squaresText.indexOf('2%') === -1 ||
+                    dotsText.indexOf('3') === -1 || dotsText.indexOf('2%') === -1) {
                   statsCheck = {
                     ok: false,
                     reason: 'row ' + idx + ' stats look wrong: "' + squaresText + '" / "' + dotsText + '"'

@@ -301,11 +301,13 @@
     });
   }
 
-  // Squares and dots controlled by each player, plus each figure as a share
-  // of the total currently in play (i.e. across all owned cells, not the
-  // full 49-cell board) - so the percentages always sum to 100% and reflect
-  // "how much of the contested board" rather than "how much of the board is
-  // even claimed yet", which would just read as near-0% for most of a game.
+  // Squares and dots controlled by each player, plus each figure as a
+  // percentage of the WHOLE board's fixed capacity - not a share among
+  // players - so early-game numbers correctly read as small (e.g. 2%) and
+  // the percentages do NOT need to sum to 100% across players (most of the
+  // board is typically still unclaimed). A cell can hold at most
+  // criticalMass - 1 dots before it detonates, so the board's total dot
+  // capacity is rows*cols*(criticalMass-1).
   function computeBoardStats() {
     var perPlayer = state.players.map(function () { return { cells: 0, dots: 0 }; });
     for (var r = 0; r < state.board.length; r++) {
@@ -317,9 +319,10 @@
         }
       }
     }
-    var totalCells = perPlayer.reduce(function (sum, s) { return sum + s.cells; }, 0);
-    var totalDots = perPlayer.reduce(function (sum, s) { return sum + s.dots; }, 0);
-    return { perPlayer: perPlayer, totalCells: totalCells, totalDots: totalDots };
+    var totalCells = state.rows * state.cols;
+    var maxDotsPerCell = GL.getCriticalMass(0, 0, state.rows, state.cols) - 1;
+    var totalDotCapacity = totalCells * maxDotsPerCell;
+    return { perPlayer: perPlayer, totalCells: totalCells, totalDotCapacity: totalDotCapacity };
   }
 
   function renderStatsPanel() {
@@ -327,8 +330,8 @@
     var boardStats = computeBoardStats();
     state.players.forEach(function (p, i) {
       var s = boardStats.perPlayer[i];
-      var cellPct = boardStats.totalCells > 0 ? Math.round((s.cells / boardStats.totalCells) * 100) : 0;
-      var dotPct = boardStats.totalDots > 0 ? Math.round((s.dots / boardStats.totalDots) * 100) : 0;
+      var cellPct = Math.round((s.cells / boardStats.totalCells) * 100);
+      var dotPct = Math.round((s.dots / boardStats.totalDotCapacity) * 100);
 
       var row = document.createElement('div');
       row.className = 'stat-row';
