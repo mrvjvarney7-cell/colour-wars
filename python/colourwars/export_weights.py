@@ -53,6 +53,7 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
         "winRateVsRandom": None,
         "winRateVsBest": None,
         "promoted": None,
+        "elo": None,
         "exportedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
@@ -65,6 +66,7 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
                 info["winRateVsRandom"] = record.get("win_rate_vs_random")
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
                 info["promoted"] = record.get("promoted")
+                info["elo"] = record.get("elo")
                 break
     elif checkpoint_file == "best.pt":
         # best.pt is whichever candidate most recently beat the previous
@@ -75,6 +77,7 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
                 info["winRateVsRandom"] = record.get("win_rate_vs_random")
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
                 info["promoted"] = True
+                info["elo"] = record.get("elo")
                 break
 
     return info

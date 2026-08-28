@@ -63,6 +63,9 @@
     var v = window.AI_VERSION;
     if (!v) return 'AI version unknown';
     var label = (v.iteration != null) ? ('AI: iteration ' + v.iteration) : ('AI: ' + v.checkpointFile);
+    if (typeof v.elo === 'number') {
+      label += ' · Elo ' + Math.round(v.elo);
+    }
     if (typeof v.winRateVsRandom === 'number') {
       label += ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
     }
