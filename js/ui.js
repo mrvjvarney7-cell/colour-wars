@@ -32,6 +32,16 @@
 
   var aiVersionSelectEl = document.getElementById('ai-version-select');
   var aiVersionTagIngameEl = document.getElementById('ai-version-tag-ingame');
+  var aiInsightToggleEl = document.getElementById('ai-insight-toggle');
+  var aiInsightToggleInputEl = document.getElementById('ai-insight-toggle-input');
+
+  // Checked by default (matches the feature's original always-on behaviour);
+  // unchecking skips both the win%/considered-moves display AND the pause
+  // that exists purely so there's time to read it, so turning this off also
+  // makes AI turns noticeably faster.
+  function showAiInsight() {
+    return !!(aiInsightToggleInputEl && aiInsightToggleInputEl.checked);
+  }
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
   var playerListEl = document.getElementById('player-list');
   var startGameBtn = document.getElementById('start-game-btn');
@@ -178,6 +188,7 @@
     renderAiVersionSelect();
     aiVersionTagIngameEl.textContent = formatAiVersionText();
     aiVersionTagIngameEl.classList.toggle('hidden', !show);
+    if (aiInsightToggleEl) aiInsightToggleEl.classList.toggle('hidden', !show);
   }
 
   function renderPlayerCountButtons() {
@@ -764,13 +775,19 @@
       aiThinkingEl.classList.add('hidden');
       if (epoch !== gameEpoch || action === null) return;
 
+      var r = Math.floor(action / state.cols);
+      var c = action % state.cols;
+
+      if (!showAiInsight()) {
+        commitMove(r, c);
+        return;
+      }
+
       renderAiInsight(MCTS.rootInsight(root), action);
 
       setTimeout(function () {
         clearAiInsight();
         if (epoch !== gameEpoch) return; // game was reset while the insight was on screen
-        var r = Math.floor(action / state.cols);
-        var c = action % state.cols;
         commitMove(r, c);
       }, AI_INSIGHT_DISPLAY_MS);
     }, THINKING_YIELD_MS);

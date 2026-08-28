@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=30">
+<link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
 
@@ -21,10 +21,14 @@
         <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
         <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
+        <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
+          <input type="checkbox" id="ai-insight-toggle-input" checked>
+          Show AI's win chance &amp; considered moves
+        </label>
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 30</p>
+      <p class="build-tag">build 31</p>
     </div>
   </section>
 
@@ -71,12 +75,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=30"></script>
-  <script src="js/ai/encode.js?v=30"></script>
-  <script src="js/ai/network.js?v=30"></script>
-  <script src="js/ai/mcts.js?v=30"></script>
-  <script src="js/ai/weights.js?v=30"></script>
-  <script src="js/ui.js?v=30"></script>
+  <script src="js/gameLogic.js?v=31"></script>
+  <script src="js/ai/encode.js?v=31"></script>
+  <script src="js/ai/network.js?v=31"></script>
+  <script src="js/ai/mcts.js?v=31"></script>
+  <script src="js/ai/weights.js?v=31"></script>
+  <script src="js/ui.js?v=31"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Covers the AI version picker: the dropdown populates

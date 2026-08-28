@@ -2,21 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
-     no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
-     browsers, especially mobile ones, can hold a stale copy well past a
-     manual refresh. This asks the browser itself not to cache the page. -->
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <title>Colour Wars</title>
-<!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
-     and mobile browsers often keep serving a cached copy even after a manual
-     refresh. Bump the number whenever style.css or the js/ files change. -->
 <link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
 
-  <!-- Setup screen -->
   <section id="setup-screen" class="screen">
     <div class="setup-card">
       <h1 class="title">Colour Wars</h1>
@@ -38,13 +28,10 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <!-- Lets us confirm which build a device is actually running, since mobile
-           browsers cache aggressively. Bump alongside the ?v= cache buster. -->
       <p class="build-tag">build 31</p>
     </div>
   </section>
 
-  <!-- Game screen -->
   <section id="game-screen" class="screen hidden">
     <div class="game-layout">
       <div class="game-main">
@@ -80,7 +67,6 @@
     </div>
   </section>
 
-  <!-- Win overlay -->
   <section id="win-screen" class="screen hidden overlay">
     <div class="win-card">
       <div class="win-dot" id="win-dot"></div>
@@ -95,5 +81,75 @@
   <script src="js/ai/mcts.js?v=31"></script>
   <script src="js/ai/weights.js?v=31"></script>
   <script src="js/ui.js?v=31"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers the "Show AI's win chance & considered moves"
+       toggle: unchecking it must suppress the insight display entirely
+       (never shown, no candidate badges) while the AI still plays a legal
+       move. Drives the real, unmodified UI via real DOM events. -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) {
+        document.title = 'RESULT:' + JSON.stringify(obj);
+      }
+
+      function fail(reason) {
+        report({ ok: false, reason: reason, errors: errors });
+      }
+
+      try {
+        var rows = document.querySelectorAll('#player-list .player-row');
+        rows[1].querySelector('.ai-toggle-btn').click(); // seat 1 -> AI
+
+        var toggleInput = document.getElementById('ai-insight-toggle-input');
+        if (!toggleInput) return fail('insight toggle checkbox not found');
+        if (!toggleInput.checked) return fail('insight toggle should default to checked');
+        toggleInput.checked = false; // turn the insight display off
+
+        document.getElementById('start-game-btn').click();
+        document.querySelector('.cell[data-row="3"][data-col="3"]').click();
+
+        var insightWasShownWhileOff = false;
+        var badgeWasShownWhileOff = false;
+        var pollCount = 0;
+        var maxPolls = 400; // 400 * 150ms = 60s ceiling
+
+        var poll = setInterval(function () {
+          pollCount++;
+          var insightEl = document.getElementById('ai-insight');
+          if (!insightEl.classList.contains('hidden')) insightWasShownWhileOff = true;
+          if (document.querySelectorAll('.ai-candidate-badge').length > 0) badgeWasShownWhileOff = true;
+
+          var thinkingEl = document.getElementById('ai-thinking');
+          var stillThinking = !thinkingEl.classList.contains('hidden');
+          var owned = document.querySelectorAll('.cell.owned').length;
+
+          if (!stillThinking && owned >= 2) {
+            clearInterval(poll);
+            report({
+              ok: errors.length === 0 && !insightWasShownWhileOff && !badgeWasShownWhileOff && owned === 2,
+              errors: errors,
+              insightWasShownWhileOff: insightWasShownWhileOff,
+              badgeWasShownWhileOff: badgeWasShownWhileOff,
+              ownedCellCount: owned,
+              turnLabel: document.getElementById('turn-label').textContent
+            });
+          } else if (pollCount >= maxPolls) {
+            clearInterval(poll);
+            fail('timed out waiting for the AI move (owned=' + owned + ')');
+          }
+        }, 150);
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
 </body>
 </html>

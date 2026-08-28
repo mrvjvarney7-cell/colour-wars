@@ -229,6 +229,24 @@ body {
   font-weight: 600;
 }
 
+.ai-insight-toggle {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.ai-insight-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* ---------- Game screen ---------- */
 
 #game-screen {
