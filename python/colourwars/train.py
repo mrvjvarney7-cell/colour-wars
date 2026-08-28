@@ -162,6 +162,30 @@ def load_checkpoint(net: ColourWarsNet, path: str, device):
     net.load_state_dict(torch.load(path, map_location=device))
 
 
+def generate_selfplay(net: ColourWarsNet, device, args, num_games: int, seed: int):
+    """Shared self-play call used both for a normal iteration and for the
+    optional buffer prefill below - same backend selection either way."""
+    if args.selfplay_backend == "rust":
+        from colourwars.rust_selfplay import generate_selfplay_games_rust
+        return generate_selfplay_games_rust(
+            net, device, num_games,
+            num_simulations=args.simulations, batch_size=args.selfplay_batch_size,
+            seed=seed,
+        )
+    elif args.selfplay_batch_size > 1:
+        return generate_selfplay_games_batched(
+            net, device, num_games,
+            num_simulations=args.simulations, batch_size=args.selfplay_batch_size,
+        )
+    else:
+        games_examples = []
+        for g in range(num_games):
+            n_players = random.choice([2, 3, 4])
+            examples = play_one_game(net, device, n_players, num_simulations=args.simulations)
+            games_examples.append(examples)
+        return games_examples
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=3)
@@ -195,6 +219,14 @@ def main():
                               "numbering (and the stagnation-detection window, which reads "
                               "training_log.jsonl directly) stays continuous instead of restarting "
                               "at 1 and colliding with existing iter_N.pt files")
+    parser.add_argument("--prefill-games", type=int, default=0,
+                         help="generate this many extra self-play games from best.pt (mixed 2/3/4p, "
+                              "same as any other self-play round) and seed the replay buffer with "
+                              "them before the first iteration, instead of waiting several "
+                              "iterations for it to fill back up on its own after a fresh process "
+                              "start or a revert-to-best. Typically pass "
+                              "replay-buffer-games minus games-per-iter, so combined with the "
+                              "first iteration's own games the buffer is already at capacity.")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -219,6 +251,22 @@ def main():
     optimizer = make_optimizer()
 
     replay_buffer = []  # list of games, each a list[TrainingExample]
+
+    if args.prefill_games > 0:
+        print(f"\nPrefilling the replay buffer with {args.prefill_games} self-play games "
+              f"from {'best.pt' if (args.resume and os.path.exists(best_path)) else 'the current network'} "
+              f"(mixed 2/3/4p, {args.simulations} sims/move) before the first iteration...")
+        t_prefill = time.time()
+        # Distinct from any real iteration's seed (args.seed * 1_000_003 + iteration)
+        # without ever going negative - the Rust seed parameter is unsigned.
+        prefill_examples = generate_selfplay(
+            net, device, args, args.prefill_games, seed=args.seed * 1_000_003 + 999_983
+        )
+        replay_buffer.extend(prefill_examples)
+        replay_buffer = replay_buffer[-args.replay_buffer_games:]
+        flat_prefill = sum(len(g) for g in replay_buffer)
+        print(f"Prefill done in {time.time() - t_prefill:.1f}s. "
+              f"Replay buffer: {len(replay_buffer)} games, {flat_prefill} examples.\n")
 
     # best_elo is the Elo rating of whatever is currently best.pt. Seed from
     # the existing log if it already has Elo history (e.g. resuming after
@@ -259,24 +307,9 @@ def main():
         print(f"Generating {args.games_per_iter} self-play games "
               f"({args.simulations} MCTS sims/move, batch size {args.selfplay_batch_size}, "
               f"backend={args.selfplay_backend})...")
-        if args.selfplay_backend == "rust":
-            from colourwars.rust_selfplay import generate_selfplay_games_rust
-            games_examples = generate_selfplay_games_rust(
-                net, device, args.games_per_iter,
-                num_simulations=args.simulations, batch_size=args.selfplay_batch_size,
-                seed=args.seed * 1_000_003 + iteration,
-            )
-        elif args.selfplay_batch_size > 1:
-            games_examples = generate_selfplay_games_batched(
-                net, device, args.games_per_iter,
-                num_simulations=args.simulations, batch_size=args.selfplay_batch_size,
-            )
-        else:
-            games_examples = []
-            for g in range(args.games_per_iter):
-                n_players = random.choice([2, 3, 4])
-                examples = play_one_game(net, device, n_players, num_simulations=args.simulations)
-                games_examples.append(examples)
+        games_examples = generate_selfplay(
+            net, device, args, args.games_per_iter, seed=args.seed * 1_000_003 + iteration
+        )
         replay_buffer.extend(games_examples)
         replay_buffer = replay_buffer[-args.replay_buffer_games:]
 
