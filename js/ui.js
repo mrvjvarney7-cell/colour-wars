@@ -49,6 +49,8 @@
   var winTitleEl = document.getElementById('win-title');
   var playAgainBtn = document.getElementById('play-again-btn');
 
+  var moveHistoryListEl = document.getElementById('move-history-list');
+
   // ---------- Setup state ----------
   var setup = {
     numPlayers: 2,
@@ -191,6 +193,28 @@
   // the state of - a game that has since been replaced.
   var gameEpoch = 0;
 
+  // ---------- Move history / position browsing ----------
+  // boardHistory[0] is the empty starting board; boardHistory[i] is the
+  // board immediately after moveList[i-1]. viewIndex is which snapshot is
+  // currently displayed - equal to boardHistory.length-1 when "live" (the
+  // normal case), or earlier while the player is browsing past positions
+  // with the arrow keys or the move list, during which the board is
+  // read-only and the live game keeps advancing untouched underneath.
+  var boardHistory = [];
+  var moveList = [];
+  var viewIndex = 0;
+
+  function isViewingLive() {
+    return viewIndex === boardHistory.length - 1;
+  }
+
+  // Standard board-game algebraic notation: files a-g left to right, ranks
+  // 1-7 bottom to top - row 0 is rendered at the top of the DOM grid, so
+  // rank counts down from rows as r increases.
+  function toAlgebraic(r, c) {
+    return String.fromCharCode(97 + c) + (state.rows - r);
+  }
+
   function buildBoardDom(rows, cols) {
     boardEl.innerHTML = '';
     cellEls = [];
@@ -201,6 +225,20 @@
         cell.className = 'cell';
         cell.dataset.row = r;
         cell.dataset.col = c;
+
+        // Coordinate labels: column letters along the bottom row, row
+        // numbers along the left column, both in the cell's top-left corner
+        // (the bottom-left cell carries both, e.g. "a1").
+        var coordText = '';
+        if (r === rows - 1) coordText += String.fromCharCode(97 + c);
+        if (c === 0) coordText += String(rows - r);
+        if (coordText) {
+          var coord = document.createElement('span');
+          coord.className = 'cell-coord';
+          coord.textContent = coordText;
+          cell.appendChild(coord);
+        }
+
         var cluster = document.createElement('div');
         cluster.className = 'dot-cluster';
         cell.appendChild(cluster);
@@ -263,17 +301,21 @@
     turnDotEl.style.color = p.color;
   }
 
-  // Highlights every cell the current player may legally click. Without
-  // this, a player's second-and-later moves being restricted to their own
-  // cells (see isValidMove) is invisible until they click somewhere that
-  // silently does nothing - easy to mistake for the site being broken.
-  function updateLegalMoveHighlights() {
+  function clearLegalMoveHighlights() {
     for (var r = 0; r < cellEls.length; r++) {
       for (var c = 0; c < cellEls[r].length; c++) {
         cellEls[r][c].classList.remove('legal-move');
       }
     }
-    if (!state || state.gameOver || isAiTurn()) return;
+  }
+
+  // Highlights every cell the current player may legally click. Without
+  // this, a player's second-and-later moves being restricted to their own
+  // cells (see isValidMove) is invisible until they click somewhere that
+  // silently does nothing - easy to mistake for the site being broken.
+  function updateLegalMoveHighlights() {
+    clearLegalMoveHighlights();
+    if (!state || state.gameOver || isAiTurn() || !isViewingLive()) return;
     var player = state.currentPlayerIndex;
     var hasMoved = state.players[player].hasMoved;
     for (var r2 = 0; r2 < state.rows; r2++) {
@@ -311,11 +353,12 @@
   // board is typically still unclaimed). A cell can hold at most
   // criticalMass - 1 dots before it detonates, so the board's total dot
   // capacity is rows*cols*(criticalMass-1).
-  function computeBoardStats() {
+  function computeBoardStats(board) {
+    board = board || state.board;
     var perPlayer = state.players.map(function () { return { cells: 0, dots: 0 }; });
-    for (var r = 0; r < state.board.length; r++) {
-      for (var c = 0; c < state.board[0].length; c++) {
-        var cell = state.board[r][c];
+    for (var r = 0; r < board.length; r++) {
+      for (var c = 0; c < board[0].length; c++) {
+        var cell = board[r][c];
         if (cell.owner !== null) {
           perPlayer[cell.owner].cells += 1;
           perPlayer[cell.owner].dots += cell.count;
@@ -328,9 +371,11 @@
     return { perPlayer: perPlayer, totalCells: totalCells, totalDotCapacity: totalDotCapacity };
   }
 
-  function renderStatsPanel() {
+  // board defaults to the live position; pass a boardHistory snapshot to
+  // show the stats for whatever position is currently being browsed.
+  function renderStatsPanel(board) {
     statsPanelEl.innerHTML = '';
-    var boardStats = computeBoardStats();
+    var boardStats = computeBoardStats(board);
     state.players.forEach(function (p, i) {
       var s = boardStats.perPlayer[i];
       var cellPct = Math.round((s.cells / boardStats.totalCells) * 100);
@@ -363,6 +408,76 @@
       statsPanelEl.appendChild(row);
     });
   }
+
+  function renderMoveHistoryList() {
+    moveHistoryListEl.innerHTML = '';
+    var liveIndex = boardHistory.length - 1;
+    moveList.forEach(function (m, i) {
+      var idx = i + 1; // this row is the move that produced boardHistory[idx]
+      var row = document.createElement('div');
+      row.className = 'move-row';
+      if (idx === liveIndex) row.classList.add('current');
+      if (idx === viewIndex) row.classList.add('viewing');
+
+      var ply = document.createElement('span');
+      ply.className = 'move-ply';
+      ply.textContent = idx + '.';
+      row.appendChild(ply);
+
+      var dot = document.createElement('span');
+      dot.className = 'move-dot';
+      dot.style.background = m.color;
+      row.appendChild(dot);
+
+      var notation = document.createElement('span');
+      notation.className = 'move-notation';
+      notation.textContent = m.notation;
+      row.appendChild(notation);
+
+      row.addEventListener('click', function () { setViewIndex(idx); });
+      moveHistoryListEl.appendChild(row);
+    });
+    var viewingRow = moveHistoryListEl.children[viewIndex - 1];
+    if (viewingRow) viewingRow.scrollIntoView({ block: 'nearest' });
+  }
+
+  // Displays boardHistory[viewIndex] read-only. When browsing (not live),
+  // the turn indicator is repurposed to say so and legal-move highlighting
+  // is switched off, since clicks are disabled while browsing (see
+  // onCellClick) - the players strip is left showing live elimination
+  // status regardless, since that isn't tracked per-snapshot.
+  function renderHistoryFrame() {
+    var board = boardHistory[viewIndex];
+    renderBoard(board);
+    renderStatsPanel(board);
+    if (isViewingLive()) {
+      renderTurnIndicator();
+      updateLegalMoveHighlights();
+    } else {
+      turnLabelEl.textContent = 'Viewing move ' + viewIndex + ' of ' + (boardHistory.length - 1);
+      turnDotEl.style.background = 'transparent';
+      clearLegalMoveHighlights();
+    }
+    renderMoveHistoryList();
+  }
+
+  function setViewIndex(idx) {
+    idx = Math.max(0, Math.min(idx, boardHistory.length - 1));
+    if (idx === viewIndex) return;
+    viewIndex = idx;
+    renderHistoryFrame();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (gameScreen.classList.contains('hidden')) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setViewIndex(viewIndex - 1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setViewIndex(viewIndex + 1);
+    }
+  });
 
   function cellCenter(r, c) {
     var cellRect = cellEls[r][c].getBoundingClientRect();
@@ -475,12 +590,16 @@
       // belongs to a game that no longer exists - discard it rather than
       // overwriting the new game's state and board.
       if (epoch !== gameEpoch) return;
+      var wasLive = isViewingLive();
       state = result.state;
-      renderBoard(state.board);
-      renderTurnIndicator();
+      moveList.push({ color: movingColor, notation: toAlgebraic(r, c) });
+      boardHistory.push(state.board);
+      // If a browsed-back view was already showing an older position, leave
+      // it there rather than yanking the player forward to this new move -
+      // renderHistoryFrame() re-renders whatever viewIndex currently is.
+      if (wasLive) viewIndex = boardHistory.length - 1;
       renderPlayersStrip();
-      renderStatsPanel();
-      updateLegalMoveHighlights();
+      renderHistoryFrame();
       animating = false;
       if (state.gameOver) {
         showWinScreen();
@@ -491,7 +610,8 @@
   }
 
   function onCellClick(e) {
-    if (animating || !state || state.gameOver || isAiTurn()) return;
+    // Clicks only ever apply to the live position - browsing past moves is read-only.
+    if (animating || !state || state.gameOver || isAiTurn() || !isViewingLive()) return;
     var r = Number(e.currentTarget.dataset.row);
     var c = Number(e.currentTarget.dataset.col);
     if (!GL.isValidMove(state.board, r, c, state.currentPlayerIndex, state.players[state.currentPlayerIndex].hasMoved)) {
@@ -586,11 +706,15 @@
       game.players[i].isAI = setup.players[i].isAI;
     }
     state = game;
+    boardHistory = [state.board];
+    moveList = [];
+    viewIndex = 0;
     buildBoardDom(state.rows, state.cols);
     renderBoard(state.board);
     renderTurnIndicator();
     renderPlayersStrip();
     renderStatsPanel();
+    renderMoveHistoryList();
     updateLegalMoveHighlights();
     // Screen transition happens before the more decorative updateAiVersionTags()
     // call - if that (or any future addition here) throws, the player still

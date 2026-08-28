@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
 
@@ -36,34 +36,43 @@
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <!-- Lets us confirm which build a device is actually running, since mobile
            browsers cache aggressively. Bump alongside the ?v= cache buster. -->
-      <p class="build-tag">build 27</p>
+      <p class="build-tag">build 28</p>
     </div>
   </section>
 
   <!-- Game screen -->
   <section id="game-screen" class="screen hidden">
-    <header class="turn-bar" id="turn-bar">
-      <div class="turn-indicator" id="turn-indicator">
-        <span class="turn-dot" id="turn-dot"></span>
-        <span id="turn-label">Player 1's turn</span>
-        <span id="ai-thinking" class="ai-thinking hidden">
-          <span class="ai-thinking-dot"></span>
-          <span class="ai-thinking-dot"></span>
-          <span class="ai-thinking-dot"></span>
-          AI is thinking&hellip;
-        </span>
-        <span id="ai-insight" class="ai-insight hidden"></span>
+    <div class="game-layout">
+      <div class="game-main">
+        <header class="turn-bar" id="turn-bar">
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot" id="turn-dot"></span>
+            <span id="turn-label">Player 1's turn</span>
+            <span id="ai-thinking" class="ai-thinking hidden">
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              AI is thinking&hellip;
+            </span>
+            <span id="ai-insight" class="ai-insight hidden"></span>
+          </div>
+          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+        </header>
+        <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
+
+        <div class="players-strip" id="players-strip"></div>
+        <div class="stats-panel" id="stats-panel"></div>
+
+        <div class="board-wrap">
+          <div class="board" id="board"></div>
+          <div class="fx-layer" id="fx-layer"></div>
+        </div>
       </div>
-      <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
-    </header>
-    <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
 
-    <div class="players-strip" id="players-strip"></div>
-    <div class="stats-panel" id="stats-panel"></div>
-
-    <div class="board-wrap">
-      <div class="board" id="board"></div>
-      <div class="fx-layer" id="fx-layer"></div>
+      <aside class="move-history-panel" id="move-history-panel">
+        <div class="move-history-header">Moves</div>
+        <div class="move-history-list" id="move-history-list"></div>
+      </aside>
     </div>
   </section>
 
@@ -76,11 +85,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=27"></script>
-  <script src="js/ai/encode.js?v=27"></script>
-  <script src="js/ai/network.js?v=27"></script>
-  <script src="js/ai/mcts.js?v=27"></script>
-  <script src="js/ai/weights.js?v=27"></script>
-  <script src="js/ui.js?v=27"></script>
+  <script src="js/gameLogic.js?v=28"></script>
+  <script src="js/ai/encode.js?v=28"></script>
+  <script src="js/ai/network.js?v=28"></script>
+  <script src="js/ai/mcts.js?v=28"></script>
+  <script src="js/ai/weights.js?v=28"></script>
+  <script src="js/ui.js?v=28"></script>
 </body>
 </html>

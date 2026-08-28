@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
 
@@ -24,33 +24,42 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 27</p>
+      <p class="build-tag">build 28</p>
     </div>
   </section>
 
   <section id="game-screen" class="screen hidden">
-    <header class="turn-bar" id="turn-bar">
-      <div class="turn-indicator" id="turn-indicator">
-        <span class="turn-dot" id="turn-dot"></span>
-        <span id="turn-label">Player 1's turn</span>
-        <span id="ai-thinking" class="ai-thinking hidden">
-          <span class="ai-thinking-dot"></span>
-          <span class="ai-thinking-dot"></span>
-          <span class="ai-thinking-dot"></span>
-          AI is thinking&hellip;
-        </span>
-        <span id="ai-insight" class="ai-insight hidden"></span>
+    <div class="game-layout">
+      <div class="game-main">
+        <header class="turn-bar" id="turn-bar">
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot" id="turn-dot"></span>
+            <span id="turn-label">Player 1's turn</span>
+            <span id="ai-thinking" class="ai-thinking hidden">
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              AI is thinking&hellip;
+            </span>
+            <span id="ai-insight" class="ai-insight hidden"></span>
+          </div>
+          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+        </header>
+        <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
+
+        <div class="players-strip" id="players-strip"></div>
+        <div class="stats-panel" id="stats-panel"></div>
+
+        <div class="board-wrap">
+          <div class="board" id="board"></div>
+          <div class="fx-layer" id="fx-layer"></div>
+        </div>
       </div>
-      <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
-    </header>
-    <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
 
-    <div class="players-strip" id="players-strip"></div>
-    <div class="stats-panel" id="stats-panel"></div>
-
-    <div class="board-wrap">
-      <div class="board" id="board"></div>
-      <div class="fx-layer" id="fx-layer"></div>
+      <aside class="move-history-panel" id="move-history-panel">
+        <div class="move-history-header">Moves</div>
+        <div class="move-history-list" id="move-history-list"></div>
+      </aside>
     </div>
   </section>
 
@@ -62,12 +71,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=27"></script>
-  <script src="js/ai/encode.js?v=27"></script>
-  <script src="js/ai/network.js?v=27"></script>
-  <script src="js/ai/mcts.js?v=27"></script>
-  <script src="js/ai/weights.js?v=27"></script>
-  <script src="js/ui.js?v=27"></script>
+  <script src="js/gameLogic.js?v=28"></script>
+  <script src="js/ai/encode.js?v=28"></script>
+  <script src="js/ai/network.js?v=28"></script>
+  <script src="js/ai/mcts.js?v=28"></script>
+  <script src="js/ai/weights.js?v=28"></script>
+  <script src="js/ui.js?v=28"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -260,13 +269,78 @@
               });
             }
 
+            // Coordinate labels: files a-g along the bottom row, ranks 1-7
+            // up the left column, both in the cell's top-left corner - the
+            // bottom-left cell carries both ("a1"), a mid-board cell neither.
+            var coordCheck = { ok: true };
+            var bottomLeft = document.querySelector('.cell[data-row="6"][data-col="0"] .cell-coord');
+            var bottomRight = document.querySelector('.cell[data-row="6"][data-col="6"] .cell-coord');
+            var topLeft = document.querySelector('.cell[data-row="0"][data-col="0"] .cell-coord');
+            var midCellCoord = document.querySelector('.cell[data-row="3"][data-col="3"] .cell-coord');
+            if (!bottomLeft || bottomLeft.textContent !== 'a1') {
+              coordCheck = { ok: false, reason: 'bottom-left cell should read "a1", got ' + (bottomLeft && bottomLeft.textContent) };
+            } else if (!bottomRight || bottomRight.textContent !== 'g') {
+              coordCheck = { ok: false, reason: 'bottom-right cell should read "g", got ' + (bottomRight && bottomRight.textContent) };
+            } else if (!topLeft || topLeft.textContent !== '7') {
+              coordCheck = { ok: false, reason: 'top-left cell should read "7", got ' + (topLeft && topLeft.textContent) };
+            } else if (midCellCoord) {
+              coordCheck = { ok: false, reason: 'mid-board cell should have no coordinate label' };
+            }
+
+            // Move history: both opening moves should have landed one row
+            // each, in order, human's move first in algebraic notation.
+            var moveRows = document.querySelectorAll('#move-history-list .move-row');
+            var moveHistoryCheck = { ok: true };
+            if (moveRows.length !== 2) {
+              moveHistoryCheck = { ok: false, reason: 'expected 2 move rows, got ' + moveRows.length };
+            } else {
+              var firstNotation = moveRows[0].querySelector('.move-notation').textContent;
+              var secondNotation = moveRows[1].querySelector('.move-notation').textContent;
+              if (firstNotation !== 'd4') {
+                moveHistoryCheck = { ok: false, reason: 'expected first move "d4" (human opened at 3,3), got "' + firstNotation + '"' };
+              } else if (!/^[a-g][1-7]$/.test(secondNotation)) {
+                moveHistoryCheck = { ok: false, reason: 'second move notation looks wrong: "' + secondNotation + '"' };
+              } else if (!moveRows[1].classList.contains('current')) {
+                moveHistoryCheck = { ok: false, reason: 'last move row should be marked current' };
+              }
+            }
+
+            // Arrow-key history browsing: stepping back should show only the
+            // human's opening move, disable clicking, and say so in the turn
+            // label; stepping forward again should restore the live view.
+            var historyCheck = { ok: true };
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+            var ownedWhileBrowsing = document.querySelectorAll('.cell.owned').length;
+            var turnLabelWhileBrowsing = document.getElementById('turn-label').textContent;
+            if (ownedWhileBrowsing !== 1) {
+              historyCheck = { ok: false, reason: 'stepping back one move should show 1 owned cell, saw ' + ownedWhileBrowsing };
+            } else if (turnLabelWhileBrowsing.indexOf('Viewing move') !== 0) {
+              historyCheck = { ok: false, reason: 'turn label should say "Viewing move..." while browsing, got "' + turnLabelWhileBrowsing + '"' };
+            } else {
+              // A click while browsing must not apply to the (invisible) live board.
+              document.querySelector('.cell[data-row="3"][data-col="3"]').click();
+              if (document.querySelectorAll('.cell.owned').length !== 1) {
+                historyCheck = { ok: false, reason: 'click while browsing history should be a no-op' };
+              } else {
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+                var ownedBackLive = document.querySelectorAll('.cell.owned').length;
+                var legalAfterReturn = document.querySelectorAll('.cell.legal-move').length;
+                if (ownedBackLive !== ownedCells) {
+                  historyCheck = { ok: false, reason: 'returning to live should restore ' + ownedCells + ' owned cells, saw ' + ownedBackLive };
+                } else if (legalAfterReturn < 1) {
+                  historyCheck = { ok: false, reason: 'returning to live should restore legal-move highlighting' };
+                }
+              }
+            }
+
             // Note: AI move timing is NOT measured here - this page runs
             // under --virtual-time-budget, which freezes performance.now()
             // during synchronous execution (it only advances virtual time
             // for pending timers/idle gaps). See run_ai_move_timing.py /
             // ai_move_timing_test.html for a real wall-clock measurement.
             report({
-              ok: errors.length === 0 && ownCellLegalCheck.ok && illegalCellCheck.ok && statsCheck.ok && insightCheck.ok,
+              ok: errors.length === 0 && ownCellLegalCheck.ok && illegalCellCheck.ok && statsCheck.ok &&
+                  insightCheck.ok && coordCheck.ok && moveHistoryCheck.ok && historyCheck.ok,
               errors: errors,
               thinkingWasShown: thinkingWasShown,
               ownedCellCount: ownedCells,
@@ -276,6 +350,9 @@
               illegalCellCheck: illegalCellCheck,
               statsCheck: statsCheck,
               insightCheck: insightCheck,
+              coordCheck: coordCheck,
+              moveHistoryCheck: moveHistoryCheck,
+              historyCheck: historyCheck,
               insightTextSeen: insightTextSeen,
               insightBadgeCountSeen: insightBadgeCountSeen
             });
