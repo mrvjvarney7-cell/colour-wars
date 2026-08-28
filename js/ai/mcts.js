@@ -198,6 +198,32 @@
     return bestA;
   }
 
+  // Summarizes a completed search for display: the mover's own estimated win
+  // probability (their backed-up root Q-value, which reflects the whole
+  // search, not just the raw network's single-glance output, remapped from
+  // [-1,1] to [0,1]), and every legal move ranked by visit share - MCTS's
+  // "how seriously did it consider this" signal, since PUCT spends more
+  // simulations on moves it believes are stronger.
+  function rootInsight(rootNode) {
+    var mover = rootNode.mover;
+    var totalChildVisits = 0;
+    var moves = [];
+    for (var i = 0; i < rootNode.childActions.length; i++) {
+      var a = rootNode.childActions[i];
+      var child = rootNode.children[a];
+      totalChildVisits += child.visitCount;
+      moves.push({ action: a, visitCount: child.visitCount });
+    }
+    moves.sort(function (x, y) { return y.visitCount - x.visitCount; });
+    for (i = 0; i < moves.length; i++) {
+      moves[i].share = totalChildVisits > 0 ? moves[i].visitCount / totalChildVisits : 0;
+    }
+    var winProbability = (mover !== null && rootNode.visitCount > 0)
+      ? (rootNode.valueSum[mover] / rootNode.visitCount + 1) / 2
+      : null;
+    return { mover: mover, winProbability: winProbability, moves: moves };
+  }
+
   root.MCTS = {
     Node: Node,
     selectLeaf: selectLeaf,
@@ -205,6 +231,7 @@
     terminalValue: terminalValue,
     expandLeafWithOutput: expandLeafWithOutput,
     runMcts: runMcts,
-    bestAction: bestAction
+    bestAction: bestAction,
+    rootInsight: rootInsight
   };
 })(typeof window !== 'undefined' ? window : globalThis);

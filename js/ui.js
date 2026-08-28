@@ -16,7 +16,10 @@
   // thinking" wait time - tune here if needed.
   var AI_SIMULATIONS = 60;
   var THINKING_YIELD_MS = 50; // lets the "AI is thinking" indicator paint before the blocking search runs
+  var AI_INSIGHT_DISPLAY_MS = 1400; // how long the win% + considered moves stay visible before the move plays
+  var AI_INSIGHT_TOP_N = 3; // how many candidate moves get a badge on the board
   var aiThinkingEl = document.getElementById('ai-thinking');
+  var aiInsightEl = document.getElementById('ai-insight');
 
   function isAiTurn() {
     return state && state.players[state.currentPlayerIndex].isAI;
@@ -506,10 +509,40 @@
     commitMove(r, c);
   }
 
+  // Shows the AI's own estimate of its win chances (the MCTS root's backed-up
+  // Q-value for the mover, remapped from [-1,1] to a 0-100% "how much it
+  // fancies its odds") and badges the top few candidate moves by visit share
+  // - the moves the search spent the most simulations exploring, i.e. what
+  // it seriously considered before settling on its actual choice.
+  function renderAiInsight(insight, chosenAction) {
+    var pct = insight.winProbability !== null ? Math.round(insight.winProbability * 100) : null;
+    aiInsightEl.textContent = (pct !== null) ? ('AI: ' + pct + '% chance') : 'AI: evaluating…';
+    aiInsightEl.classList.remove('hidden');
+
+    var cols = state.cols;
+    insight.moves.slice(0, AI_INSIGHT_TOP_N).forEach(function (m) {
+      var r = Math.floor(m.action / cols);
+      var c = m.action % cols;
+      var badge = document.createElement('div');
+      badge.className = 'ai-candidate-badge' + (m.action === chosenAction ? ' chosen' : '');
+      badge.textContent = Math.round(m.share * 100) + '%';
+      cellEls[r][c].appendChild(badge);
+    });
+  }
+
+  function clearAiInsight() {
+    aiInsightEl.classList.add('hidden');
+    aiInsightEl.textContent = '';
+    var badges = document.querySelectorAll('.ai-candidate-badge');
+    for (var i = 0; i < badges.length; i++) badges[i].remove();
+  }
+
   // If it's currently an AI seat's turn, shows the "thinking" indicator,
   // yields to the browser so it actually paints before the blocking search
-  // runs, then computes and plays the AI's move through the same
-  // commitMove() path a human click uses. Recurses via commitMove's own
+  // runs, then computes the AI's move. Rather than playing it immediately,
+  // shows its win-chance estimate and considered moves for a beat so
+  // there's actually time to read them, then plays the move through the
+  // same commitMove() path a human click uses. Recurses via commitMove's own
   // post-move check, so a run of consecutive AI seats (3p/4p games) plays
   // itself out automatically until it's the human's turn again.
   function maybePlayAiTurn(epoch) {
@@ -521,9 +554,16 @@
       var action = MCTS.bestAction(root);
       aiThinkingEl.classList.add('hidden');
       if (epoch !== gameEpoch || action === null) return;
-      var r = Math.floor(action / state.cols);
-      var c = action % state.cols;
-      commitMove(r, c);
+
+      renderAiInsight(MCTS.rootInsight(root), action);
+
+      setTimeout(function () {
+        clearAiInsight();
+        if (epoch !== gameEpoch) return; // game was reset while the insight was on screen
+        var r = Math.floor(action / state.cols);
+        var c = action % state.cols;
+        commitMove(r, c);
+      }, AI_INSIGHT_DISPLAY_MS);
     }, THINKING_YIELD_MS);
   }
 
@@ -534,6 +574,7 @@
     animating = false;
     fxLayerEl.innerHTML = '';
     aiThinkingEl.classList.add('hidden');
+    clearAiInsight();
   }
 
   function startGame() {

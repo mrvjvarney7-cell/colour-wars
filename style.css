@@ -270,6 +270,32 @@ body {
   50% { opacity: 1; transform: scale(1); }
 }
 
+.ai-insight {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.ai-candidate-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 18px;
+  padding: 1px 3px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.ai-candidate-badge.chosen {
+  background: var(--accent);
+}
+
 .turn-dot {
   width: 16px;
   height: 16px;

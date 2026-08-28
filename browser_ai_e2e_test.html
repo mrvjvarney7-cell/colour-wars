@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=27">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 26</p>
+      <p class="build-tag">build 27</p>
     </div>
   </section>
 
@@ -39,6 +39,7 @@
           <span class="ai-thinking-dot"></span>
           AI is thinking&hellip;
         </span>
+        <span id="ai-insight" class="ai-insight hidden"></span>
       </div>
       <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
     </header>
@@ -61,12 +62,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=26"></script>
-  <script src="js/ai/encode.js?v=26"></script>
-  <script src="js/ai/network.js?v=26"></script>
-  <script src="js/ai/mcts.js?v=26"></script>
-  <script src="js/ai/weights.js?v=26"></script>
-  <script src="js/ui.js?v=26"></script>
+  <script src="js/gameLogic.js?v=27"></script>
+  <script src="js/ai/encode.js?v=27"></script>
+  <script src="js/ai/network.js?v=27"></script>
+  <script src="js/ai/mcts.js?v=27"></script>
+  <script src="js/ai/weights.js?v=27"></script>
+  <script src="js/ui.js?v=27"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -148,6 +149,9 @@
         centerCell.click();
 
         var thinkingWasShown = false;
+        var insightWasShown = false;
+        var insightTextSeen = '';
+        var insightBadgeCountSeen = 0;
         var pollCount = 0;
         var maxPolls = 400; // 400 * 150ms = 60s ceiling
 
@@ -155,6 +159,13 @@
           pollCount++;
           var thinkingEl = document.getElementById('ai-thinking');
           if (!thinkingEl.classList.contains('hidden')) thinkingWasShown = true;
+
+          var insightEl = document.getElementById('ai-insight');
+          if (!insightEl.classList.contains('hidden')) {
+            insightWasShown = true;
+            insightTextSeen = insightEl.textContent;
+            insightBadgeCountSeen = document.querySelectorAll('.ai-candidate-badge').length;
+          }
 
           var ownedCells = document.querySelectorAll('.cell.owned').length;
           var stillThinking = !thinkingEl.classList.contains('hidden');
@@ -171,6 +182,19 @@
 
         function finish(ownedCells) {
           try {
+            var insightCheck = { ok: true };
+            if (!insightWasShown) {
+              insightCheck = { ok: false, reason: 'ai-insight was never shown' };
+            } else if (!/^AI: \d+% chance$/.test(insightTextSeen)) {
+              insightCheck = { ok: false, reason: 'unexpected insight text: "' + insightTextSeen + '"' };
+            } else if (insightBadgeCountSeen < 1) {
+              insightCheck = { ok: false, reason: 'expected at least 1 candidate-move badge, saw ' + insightBadgeCountSeen };
+            }
+            // Badges must be cleared again once the move actually lands.
+            var badgesAfter = document.querySelectorAll('.ai-candidate-badge').length;
+            if (badgesAfter !== 0) {
+              insightCheck = { ok: false, reason: 'expected candidate badges cleared after the move, found ' + badgesAfter };
+            }
             // Re-derive board state straight from the DOM to confirm both
             // moves actually landed with plausible owner/count, independent
             // of ui.js's own internal state.
@@ -242,7 +266,7 @@
             // for pending timers/idle gaps). See run_ai_move_timing.py /
             // ai_move_timing_test.html for a real wall-clock measurement.
             report({
-              ok: errors.length === 0 && ownCellLegalCheck.ok && illegalCellCheck.ok && statsCheck.ok,
+              ok: errors.length === 0 && ownCellLegalCheck.ok && illegalCellCheck.ok && statsCheck.ok && insightCheck.ok,
               errors: errors,
               thinkingWasShown: thinkingWasShown,
               ownedCellCount: ownedCells,
@@ -250,7 +274,10 @@
               turnLabel: document.getElementById('turn-label').textContent,
               ownCellLegalCheck: ownCellLegalCheck,
               illegalCellCheck: illegalCellCheck,
-              statsCheck: statsCheck
+              statsCheck: statsCheck,
+              insightCheck: insightCheck,
+              insightTextSeen: insightTextSeen,
+              insightBadgeCountSeen: insightBadgeCountSeen
             });
           } catch (e) {
             fail('exception in finish(): ' + e.message);
