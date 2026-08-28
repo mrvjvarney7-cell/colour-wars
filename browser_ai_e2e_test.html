@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 28</p>
+      <p class="build-tag">build 29</p>
     </div>
   </section>
 
@@ -71,12 +71,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=28"></script>
-  <script src="js/ai/encode.js?v=28"></script>
-  <script src="js/ai/network.js?v=28"></script>
-  <script src="js/ai/mcts.js?v=28"></script>
-  <script src="js/ai/weights.js?v=28"></script>
-  <script src="js/ui.js?v=28"></script>
+  <script src="js/gameLogic.js?v=29"></script>
+  <script src="js/ai/encode.js?v=29"></script>
+  <script src="js/ai/network.js?v=29"></script>
+  <script src="js/ai/mcts.js?v=29"></script>
+  <script src="js/ai/weights.js?v=29"></script>
+  <script src="js/ui.js?v=29"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -287,21 +287,24 @@
               coordCheck = { ok: false, reason: 'mid-board cell should have no coordinate label' };
             }
 
-            // Move history: both opening moves should have landed one row
-            // each, in order, human's move first in algebraic notation.
-            var moveRows = document.querySelectorAll('#move-history-list .move-row');
+            // Move history: a 2p game puts both opening moves in round 1 -
+            // one cell per seat, human's move first, in algebraic notation.
+            var moveCells = document.querySelectorAll('#move-history-list .move-cell:not(.empty)');
             var moveHistoryCheck = { ok: true };
-            if (moveRows.length !== 2) {
-              moveHistoryCheck = { ok: false, reason: 'expected 2 move rows, got ' + moveRows.length };
+            var plyLabel = document.querySelector('#move-history-list .move-ply');
+            if (moveCells.length !== 2) {
+              moveHistoryCheck = { ok: false, reason: 'expected 2 move cells, got ' + moveCells.length };
+            } else if (!plyLabel || plyLabel.textContent !== '1.') {
+              moveHistoryCheck = { ok: false, reason: 'expected a single round labelled "1."' };
             } else {
-              var firstNotation = moveRows[0].querySelector('.move-notation').textContent;
-              var secondNotation = moveRows[1].querySelector('.move-notation').textContent;
+              var firstNotation = moveCells[0].textContent;
+              var secondNotation = moveCells[1].textContent;
               if (firstNotation !== 'd4') {
                 moveHistoryCheck = { ok: false, reason: 'expected first move "d4" (human opened at 3,3), got "' + firstNotation + '"' };
               } else if (!/^[a-g][1-7]$/.test(secondNotation)) {
                 moveHistoryCheck = { ok: false, reason: 'second move notation looks wrong: "' + secondNotation + '"' };
-              } else if (!moveRows[1].classList.contains('current')) {
-                moveHistoryCheck = { ok: false, reason: 'last move row should be marked current' };
+              } else if (!moveCells[1].classList.contains('viewing')) {
+                moveHistoryCheck = { ok: false, reason: 'the live move should be marked viewing while not browsing history' };
               }
             }
 

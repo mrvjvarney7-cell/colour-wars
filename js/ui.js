@@ -409,36 +409,44 @@
     });
   }
 
+  // Chess-style move table: one row per round (every player's moved once),
+  // one column per seat, e.g. for a 2p game "1.  e4  c5" / "2.  Nf3  Nc6".
+  // Emits flat children (ply-label, then one cell per seat) with no
+  // per-row wrapper - the CSS grid's own row-wrapping lays them out, since
+  // grid-template-columns below is exactly (numPlayers + 1) wide.
   function renderMoveHistoryList() {
+    var numPlayers = state.players.length;
+    moveHistoryListEl.style.gridTemplateColumns = 'auto repeat(' + numPlayers + ', 1fr)';
     moveHistoryListEl.innerHTML = '';
-    var liveIndex = boardHistory.length - 1;
-    moveList.forEach(function (m, i) {
-      var idx = i + 1; // this row is the move that produced boardHistory[idx]
-      var row = document.createElement('div');
-      row.className = 'move-row';
-      if (idx === liveIndex) row.classList.add('current');
-      if (idx === viewIndex) row.classList.add('viewing');
 
+    for (var round = 0; round * numPlayers < moveList.length; round++) {
       var ply = document.createElement('span');
       ply.className = 'move-ply';
-      ply.textContent = idx + '.';
-      row.appendChild(ply);
+      ply.textContent = (round + 1) + '.';
+      moveHistoryListEl.appendChild(ply);
 
-      var dot = document.createElement('span');
-      dot.className = 'move-dot';
-      dot.style.background = m.color;
-      row.appendChild(dot);
+      for (var seat = 0; seat < numPlayers; seat++) {
+        var moveIdx = round * numPlayers + seat;
+        var cell = document.createElement('span');
+        cell.className = 'move-cell';
+        if (moveIdx < moveList.length) {
+          var m = moveList[moveIdx];
+          var boardIdx = moveIdx + 1; // this move produced boardHistory[boardIdx]
+          cell.textContent = m.notation;
+          cell.style.color = m.color;
+          if (boardIdx === viewIndex) cell.classList.add('viewing');
+          cell.addEventListener('click', (function (idx) {
+            return function () { setViewIndex(idx); };
+          })(boardIdx));
+        } else {
+          cell.classList.add('empty');
+        }
+        moveHistoryListEl.appendChild(cell);
+      }
+    }
 
-      var notation = document.createElement('span');
-      notation.className = 'move-notation';
-      notation.textContent = m.notation;
-      row.appendChild(notation);
-
-      row.addEventListener('click', function () { setViewIndex(idx); });
-      moveHistoryListEl.appendChild(row);
-    });
-    var viewingRow = moveHistoryListEl.children[viewIndex - 1];
-    if (viewingRow) viewingRow.scrollIntoView({ block: 'nearest' });
+    var viewingCell = moveHistoryListEl.querySelector('.move-cell.viewing');
+    if (viewingCell) viewingCell.scrollIntoView({ block: 'nearest' });
   }
 
   // Displays boardHistory[viewIndex] read-only. When browsing (not live),
