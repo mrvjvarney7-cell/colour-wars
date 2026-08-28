@@ -8,6 +8,43 @@
   var WAVE_PAUSE_MS = 90;
   var POP_MS = 260;
 
+  // ---------- Theme ----------
+  // Dark is the default (matches style.css's bare :root palette); light
+  // applies automatically when the OS prefers it, unless overridden here -
+  // an explicit choice is persisted so it sticks on the next visit. Applied
+  // as early as possible (top of this file, before any rendering) to avoid
+  // a flash of the wrong theme.
+  var THEME_STORAGE_KEY = 'colourwars-theme';
+  var themeToggleBtn = document.getElementById('theme-toggle-btn');
+
+  function getStoredTheme() {
+    try { return localStorage.getItem(THEME_STORAGE_KEY); } catch (e) { return null; }
+  }
+  function setStoredTheme(theme) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch (e) { /* private mode etc. - just won't persist */ }
+  }
+  function systemPrefersLight() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  }
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (themeToggleBtn) {
+      var switchTo = (theme === 'light') ? 'dark' : 'light';
+      themeToggleBtn.textContent = (switchTo === 'light') ? 'Light mode' : 'Dark mode';
+      themeToggleBtn.setAttribute('aria-label', 'Switch to ' + switchTo + ' theme');
+    }
+  }
+
+  applyTheme(getStoredTheme() || (systemPrefersLight() ? 'light' : 'dark'));
+
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', function () {
+      var next = (document.documentElement.getAttribute('data-theme') === 'light') ? 'dark' : 'light';
+      applyTheme(next);
+      setStoredTheme(next);
+    });
+  }
+
   // ---------- AI opponent ----------
   // Each seat is independently Human or AI (setup.players[i].isAI, toggled
   // per-player in the setup screen) - any mix works, from all-human to a

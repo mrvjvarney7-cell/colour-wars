@@ -43,6 +43,7 @@ HTML_FILES_WITH_CACHE_BUSTER = [
     os.path.join(REPO_ROOT, "browser_ai_seat0_test.html"),
     os.path.join(REPO_ROOT, "browser_ai_version_select_test.html"),
     os.path.join(REPO_ROOT, "browser_ai_insight_toggle_test.html"),
+    os.path.join(REPO_ROOT, "browser_theme_toggle_test.html"),
 ]
 
 POLL_SECONDS = 120

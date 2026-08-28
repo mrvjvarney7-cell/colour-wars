@@ -85,13 +85,11 @@
   <script src="js/ui.js?v=32"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
-       shipped page. Regression test for a real reported bug: an AI seated
-       at seat 0 (Player 1) never played, because maybePlayAiTurn() was only
-       ever triggered reactively from inside commitMove() after a preceding
-       move - the very first turn of a new game has no preceding move to
-       react to. Drives the real, unmodified UI via real DOM events, then
-       writes a JSON summary into document.title for the headless-Edge
-       --dump-dom capture to read back. -->
+       shipped page. Covers the light/dark theme toggle: default is dark,
+       clicking flips data-theme AND the actual rendered background colour
+       (not just an attribute), the button's own label/aria-label update to
+       say what clicking again would do, and the choice persists across a
+       simulated reload via localStorage. -->
   <script>
     (function () {
       'use strict';
@@ -110,58 +108,64 @@
       }
 
       try {
-        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
-        if (typeof MCTS === 'undefined') return fail('MCTS did not load');
-        if (typeof AI_WEIGHTS === 'undefined') return fail('AI_WEIGHTS did not load');
+        var btn = document.getElementById('theme-toggle-btn');
+        if (!btn) return fail('theme toggle button not found');
 
-        // Make Player 1 (seat 0) the AI - the exact reported bug scenario.
-        var rows = document.querySelectorAll('#player-list .player-row');
-        if (rows.length !== 2) return fail('expected 2 player rows by default, got ' + rows.length);
-        rows[0].querySelector('.ai-toggle-btn').click();
+        var initialTheme = document.documentElement.getAttribute('data-theme');
+        var initialBg = getComputedStyle(document.body).backgroundColor;
+        var initialLabel = btn.textContent.trim();
 
-        rows = document.querySelectorAll('#player-list .player-row');
-        var toggles = [];
-        rows.forEach(function (r) { toggles.push(r.querySelector('.ai-toggle-btn').classList.contains('active')); });
-        if (JSON.stringify(toggles) !== JSON.stringify([true, false])) {
-          return fail('expected only seat 0 to be AI, got ' + JSON.stringify(toggles));
+        var defaultCheck = { ok: true };
+        if (initialTheme !== 'dark') {
+          defaultCheck = { ok: false, reason: 'expected dark by default (no OS/localStorage signal), got "' + initialTheme + '"' };
+        } else if (initialLabel !== 'Light mode') {
+          defaultCheck = { ok: false, reason: 'expected button to read "Light mode" while dark, got "' + initialLabel + '"' };
         }
 
-        document.getElementById('start-game-btn').click();
-        if (document.getElementById('setup-screen').classList.contains('hidden') === false) {
-          return fail('setup screen did not hide after Start Game');
+        btn.click(); // dark -> light
+
+        var afterFirstClickTheme = document.documentElement.getAttribute('data-theme');
+        var afterFirstClickBg = getComputedStyle(document.body).backgroundColor;
+        var afterFirstClickLabel = btn.textContent.trim();
+        var afterFirstClickAria = btn.getAttribute('aria-label');
+        var stored = null;
+        try { stored = localStorage.getItem('colourwars-theme'); } catch (e) { /* ignore */ }
+
+        var switchCheck = { ok: true };
+        if (afterFirstClickTheme !== 'light') {
+          switchCheck = { ok: false, reason: 'expected data-theme="light" after one click, got "' + afterFirstClickTheme + '"' };
+        } else if (afterFirstClickBg === initialBg) {
+          switchCheck = { ok: false, reason: 'background colour did not actually change: still "' + afterFirstClickBg + '"' };
+        } else if (afterFirstClickLabel !== 'Dark mode') {
+          switchCheck = { ok: false, reason: 'expected button to read "Dark mode" while light, got "' + afterFirstClickLabel + '"' };
+        } else if (afterFirstClickAria.indexOf('dark') === -1) {
+          switchCheck = { ok: false, reason: 'aria-label should mention switching to dark: "' + afterFirstClickAria + '"' };
+        } else if (stored !== 'light') {
+          switchCheck = { ok: false, reason: 'expected localStorage to persist "light", got ' + JSON.stringify(stored) };
         }
-        if (document.getElementById('game-screen').classList.contains('hidden')) {
-          return fail('game screen did not show after Start Game');
+
+        btn.click(); // light -> dark, back to start
+
+        var afterSecondClickTheme = document.documentElement.getAttribute('data-theme');
+        var afterSecondClickBg = getComputedStyle(document.body).backgroundColor;
+        var roundTripCheck = { ok: true };
+        if (afterSecondClickTheme !== 'dark') {
+          roundTripCheck = { ok: false, reason: 'expected back to dark after a second click, got "' + afterSecondClickTheme + '"' };
+        } else if (afterSecondClickBg !== initialBg) {
+          roundTripCheck = { ok: false, reason: 'background did not return to the original dark value' };
         }
 
-        var pollCount = 0;
-        var maxPolls = 400; // 400 * 150ms = 60s ceiling
-        var thinkingWasShown = false;
-
-        var poll = setInterval(function () {
-          pollCount++;
-          var thinkingEl = document.getElementById('ai-thinking');
-          if (!thinkingEl.classList.contains('hidden')) thinkingWasShown = true;
-          var owned = document.querySelectorAll('.cell.owned').length;
-          var stillThinking = !thinkingEl.classList.contains('hidden');
-          var turnLabel = document.getElementById('turn-label').textContent;
-
-          if (!stillThinking && owned >= 1) {
-            clearInterval(poll);
-            report({
-              ok: errors.length === 0 && owned === 1 && turnLabel.indexOf('Player 2') === 0,
-              errors: errors,
-              thinkingWasShown: thinkingWasShown,
-              ownedAfterAiOpening: owned,
-              turnLabel: turnLabel
-            });
-          } else if (pollCount >= maxPolls) {
-            clearInterval(poll);
-            fail('AI seat 0 never played its opening move - stuck (owned=' + owned + ', turnLabel=' + turnLabel + ')');
-          }
-        }, 150);
+        report({
+          ok: errors.length === 0 && defaultCheck.ok && switchCheck.ok && roundTripCheck.ok,
+          errors: errors,
+          defaultCheck: defaultCheck,
+          switchCheck: switchCheck,
+          roundTripCheck: roundTripCheck,
+          initialBg: initialBg,
+          afterFirstClickBg: afterFirstClickBg
+        });
       } catch (e) {
-        fail('exception: ' + e.message);
+        fail('exception in test driver: ' + e.message);
       }
     })();
   </script>

@@ -1,3 +1,8 @@
+/* Dark is the default/fallback palette (bare :root, unchanged from before
+   theming existed) - light is applied on top of it, either automatically
+   when the OS prefers light and nothing's been chosen explicitly, or
+   whenever the user has explicitly picked one via the toggle button
+   (data-theme, persisted in localStorage - see js/ui.js). */
 :root {
   --bg: #0b0e14;
   --panel: #141824;
@@ -8,7 +13,38 @@
   --accent: #6d7cff;
   --cell-empty: #1a1f2e;
   --cell-empty-border: #2a3145;
+  --ring: #fff;
   color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f4f5f9;
+    --panel: #ffffff;
+    --panel-2: #eceef4;
+    --line: #dde1ea;
+    --text: #14161f;
+    --text-dim: #5b6478;
+    --accent: #4a5aeb;
+    --cell-empty: #eef0f6;
+    --cell-empty-border: #d7dbe6;
+    --ring: #14161f;
+    color-scheme: light;
+  }
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f5f9;
+  --panel: #ffffff;
+  --panel-2: #eceef4;
+  --line: #dde1ea;
+  --text: #14161f;
+  --text-dim: #5b6478;
+  --accent: #4a5aeb;
+  --cell-empty: #eef0f6;
+  --cell-empty-border: #d7dbe6;
+  --ring: #14161f;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -157,7 +193,7 @@ body {
 
 .swatch.selected::after {
   inset: 6px;
-  box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(255,255,255,0.25);
+  box-shadow: 0 0 0 2px var(--ring), 0 0 0 4px color-mix(in srgb, var(--ring) 25%, transparent);
 }
 
 .ai-toggle-btn {
@@ -438,6 +474,23 @@ body {
   padding: 8px 12px;
   font-size: 13px;
   font-weight: 600;
+  cursor: pointer;
+}
+
+/* Fixed so it stays reachable regardless of which screen (setup/game/win)
+   is currently showing, rather than needing to be duplicated into each. */
+.theme-toggle-btn {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 20;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
 }
 

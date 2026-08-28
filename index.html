@@ -12,9 +12,13 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=31">
+<link rel="stylesheet" href="style.css?v=32">
 </head>
 <body>
+
+  <!-- Fixed outside the screens below so it stays reachable no matter which
+       one (setup/game/win) is currently showing. -->
+  <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-label="Switch to light theme">Light mode</button>
 
   <!-- Setup screen -->
   <section id="setup-screen" class="screen">
@@ -40,7 +44,7 @@
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <!-- Lets us confirm which build a device is actually running, since mobile
            browsers cache aggressively. Bump alongside the ?v= cache buster. -->
-      <p class="build-tag">build 31</p>
+      <p class="build-tag">build 32</p>
     </div>
   </section>
 
@@ -89,11 +93,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=31"></script>
-  <script src="js/ai/encode.js?v=31"></script>
-  <script src="js/ai/network.js?v=31"></script>
-  <script src="js/ai/mcts.js?v=31"></script>
-  <script src="js/ai/weights.js?v=31"></script>
-  <script src="js/ui.js?v=31"></script>
+  <script src="js/gameLogic.js?v=32"></script>
+  <script src="js/ai/encode.js?v=32"></script>
+  <script src="js/ai/network.js?v=32"></script>
+  <script src="js/ai/mcts.js?v=32"></script>
+  <script src="js/ai/weights.js?v=32"></script>
+  <script src="js/ui.js?v=32"></script>
 </body>
 </html>
