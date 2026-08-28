@@ -75,6 +75,13 @@
   }
 
   function updateAiVersionTags() {
+    // Guards against a stale cached copy of index.html from before these
+    // elements existed being served alongside a newer ui.js (GitHub Pages'
+    // cache-control means that skew is a real possibility, not hypothetical -
+    // it's exactly what broke Start Game entirely before this guard existed).
+    // A visitor missing the version tag is a much smaller problem than a
+    // visitor who can't place a single dot.
+    if (!aiVersionTagEl || !aiVersionTagIngameEl) return;
     var show = anyAiSeatsInPlay();
     var text = formatAiVersionText();
     aiVersionTagEl.textContent = text;
@@ -443,10 +450,13 @@
     renderBoard(state.board);
     renderTurnIndicator();
     renderPlayersStrip();
-    updateAiVersionTags();
+    // Screen transition happens before the more decorative updateAiVersionTags()
+    // call - if that (or any future addition here) throws, the player still
+    // reaches a playable board instead of getting stuck on the setup screen.
     winScreen.classList.add('hidden');
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
+    updateAiVersionTags();
   }
 
   function backToSetup() {
