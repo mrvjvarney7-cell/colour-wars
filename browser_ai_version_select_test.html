@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Colour Wars</title>
+<link rel="stylesheet" href="style.css?v=30">
+</head>
+<body>
+
+  <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours &amp; opponents</div>
+        <div id="player-list" class="player-list"></div>
+        <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+      <p class="build-tag">build 30</p>
+    </div>
+  </section>
+
+  <section id="game-screen" class="screen hidden">
+    <div class="game-layout">
+      <div class="game-main">
+        <header class="turn-bar" id="turn-bar">
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot" id="turn-dot"></span>
+            <span id="turn-label">Player 1's turn</span>
+            <span id="ai-thinking" class="ai-thinking hidden">
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              AI is thinking&hellip;
+            </span>
+            <span id="ai-insight" class="ai-insight hidden"></span>
+          </div>
+          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+        </header>
+        <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
+
+        <div class="players-strip" id="players-strip"></div>
+        <div class="stats-panel" id="stats-panel"></div>
+
+        <div class="board-wrap">
+          <div class="board" id="board"></div>
+          <div class="fx-layer" id="fx-layer"></div>
+        </div>
+      </div>
+
+      <aside class="move-history-panel" id="move-history-panel">
+        <div class="move-history-header">Moves</div>
+        <div class="move-history-list" id="move-history-list"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js?v=30"></script>
+  <script src="js/ai/encode.js?v=30"></script>
+  <script src="js/ai/network.js?v=30"></script>
+  <script src="js/ai/mcts.js?v=30"></script>
+  <script src="js/ai/weights.js?v=30"></script>
+  <script src="js/ui.js?v=30"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers the AI version picker: the dropdown populates
+       from the async js/ai/versions/index.json fetch, lists every promoted
+       iteration, and switching to a non-default one actually changes which
+       weights power the AI's real moves (not just the displayed label) -
+       run with --allow-file-access-from-files, since Chromium blocks
+       fetch() for plain file:// pages otherwise (this feature works
+       unrestricted once actually served over https, e.g. GitHub Pages). -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) {
+        document.title = 'RESULT:' + JSON.stringify(obj);
+      }
+
+      function fail(reason) {
+        report({ ok: false, reason: reason, errors: errors });
+      }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+        if (typeof MCTS === 'undefined') return fail('MCTS did not load');
+        if (typeof AI_WEIGHTS === 'undefined') return fail('AI_WEIGHTS did not load');
+        if (typeof AI_VERSION === 'undefined') return fail('AI_VERSION did not load');
+
+        var rows = document.querySelectorAll('#player-list .player-row');
+        rows[1].querySelector('.ai-toggle-btn').click(); // seat 1 -> AI
+
+        var pollCount = 0;
+        function waitForVersionOptions() {
+          pollCount++;
+          var select = document.getElementById('ai-version-select');
+          if (select && !select.classList.contains('hidden') && select.options.length > 0) {
+            afterOptionsLoaded(select);
+          } else if (pollCount >= 50) { // 50 * 100ms = 5s
+            fail('AI version select never populated (fetch of versions/index.json may have failed)');
+          } else {
+            setTimeout(waitForVersionOptions, 100);
+          }
+        }
+
+        function afterOptionsLoaded(select) {
+          try {
+            var optionsCheck = { ok: true };
+            var texts = Array.from(select.options).map(function (o) { return o.textContent; });
+            var iterations = Array.from(select.options).map(function (o) { return Number(o.value); });
+            if (select.options.length !== 4) {
+              optionsCheck = { ok: false, reason: 'expected 4 promoted versions, got ' + select.options.length, texts: texts };
+            } else if (JSON.stringify(iterations) !== JSON.stringify([11, 7, 5, 3])) {
+              optionsCheck = { ok: false, reason: 'expected iterations sorted [11,7,5,3], got ' + JSON.stringify(iterations) };
+            } else if (!/^Iteration 11 · Elo \d+ · \d+% vs random$/.test(texts[0])) {
+              optionsCheck = { ok: false, reason: 'unexpected option text: "' + texts[0] + '"' };
+            } else if (Number(select.value) !== AI_VERSION.iteration) {
+              optionsCheck = { ok: false, reason: 'default selection should match the eagerly-loaded AI_VERSION (' + AI_VERSION.iteration + '), got ' + select.value };
+            }
+            if (!optionsCheck.ok) return report({ ok: false, errors: errors, optionsCheck: optionsCheck });
+
+            // Switch to iteration 3 (the oldest/weakest promoted version) -
+            // triggers an on-demand fetch of its weights.
+            select.value = '3';
+            select.dispatchEvent(new Event('change'));
+
+            var switchPollCount = 0;
+            function waitForSwitch() {
+              switchPollCount++;
+              if (!select.disabled) {
+                afterSwitch(optionsCheck);
+              } else if (switchPollCount >= 50) {
+                fail('AI version switch never finished (select stayed disabled)');
+              } else {
+                setTimeout(waitForSwitch, 100);
+              }
+            }
+            // Give the disabled flag a moment to actually be set before
+            // polling for it to clear again - the fetch may resolve fast.
+            setTimeout(waitForSwitch, 50);
+          } catch (e) {
+            fail('exception in afterOptionsLoaded: ' + e.message);
+          }
+        }
+
+        function afterSwitch(optionsCheck) {
+          try {
+            document.getElementById('start-game-btn').click();
+            var tagIngame = document.getElementById('ai-version-tag-ingame');
+            var switchCheck = { ok: true };
+            if (tagIngame.classList.contains('hidden') || tagIngame.textContent.indexOf('AI: iteration 3') !== 0) {
+              switchCheck = { ok: false, reason: 'in-game tag should show iteration 3 after switching: "' + tagIngame.textContent + '"' };
+            }
+
+            // Prove the switch is real, not just cosmetic: let the human
+            // open, then confirm the AI (now running iteration 3's weights)
+            // actually computes and plays a move.
+            document.querySelector('.cell[data-row="3"][data-col="3"]').click();
+
+            var movePollCount = 0;
+            var poll = setInterval(function () {
+              movePollCount++;
+              var thinkingEl = document.getElementById('ai-thinking');
+              var stillThinking = !thinkingEl.classList.contains('hidden');
+              var owned = document.querySelectorAll('.cell.owned').length;
+              if (!stillThinking && owned >= 2) {
+                clearInterval(poll);
+                report({
+                  ok: errors.length === 0 && optionsCheck.ok && switchCheck.ok,
+                  errors: errors,
+                  optionsCheck: optionsCheck,
+                  switchCheck: switchCheck,
+                  ownedAfterSwitchedAiMove: owned,
+                  turnLabel: document.getElementById('turn-label').textContent
+                });
+              } else if (movePollCount >= 400) {
+                clearInterval(poll);
+                fail('timed out waiting for the switched AI to move (owned=' + owned + ')');
+              }
+            }, 150);
+          } catch (e) {
+            fail('exception in afterSwitch: ' + e.message);
+          }
+        }
+
+        waitForVersionOptions();
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>

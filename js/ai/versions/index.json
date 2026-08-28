@@ -1,0 +1,26 @@
+[
+  {
+    "iteration": 3,
+    "file": "iter3.json",
+    "elo": 1000,
+    "winRateVsRandom": 0.9
+  },
+  {
+    "iteration": 5,
+    "file": "iter5.json",
+    "elo": 1263,
+    "winRateVsRandom": 0.95
+  },
+  {
+    "iteration": 7,
+    "file": "iter7.json",
+    "elo": 1394,
+    "winRateVsRandom": 0.99
+  },
+  {
+    "iteration": 11,
+    "file": "iter11.json",
+    "elo": 1472,
+    "winRateVsRandom": 1.0
+  }
+]

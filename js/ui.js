@@ -30,7 +30,7 @@
   var gameScreen = document.getElementById('game-screen');
   var winScreen = document.getElementById('win-screen');
 
-  var aiVersionTagEl = document.getElementById('ai-version-tag');
+  var aiVersionSelectEl = document.getElementById('ai-version-select');
   var aiVersionTagIngameEl = document.getElementById('ai-version-tag-ingame');
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
   var playerListEl = document.getElementById('player-list');
@@ -62,11 +62,32 @@
     ]
   };
 
-  // States which trained checkpoint the browser AI is actually running, so
-  // it's never a mystery which version you're playing against. AI_VERSION
-  // is written by python -m colourwars.export_weights alongside AI_WEIGHTS.
+  // ---------- AI version picker ----------
+  // The browser AI defaults to whatever python -m colourwars.export_weights
+  // last shipped as js/ai/weights.js (window.AI_WEIGHTS / window.AI_VERSION,
+  // loaded eagerly via <script> so the default is ready with zero extra
+  // latency). js/ai/versions/index.json separately lists every PROMOTED
+  // iteration (python -m colourwars.export_all_versions) - picking one of
+  // those fetches its weights on demand instead of bundling every past
+  // version into the page's default load.
+  var activeAiWeights = window.AI_WEIGHTS;
+  var activeVersionInfo = window.AI_VERSION;
+  var availableVersions = []; // [{iteration, file, elo, winRateVsRandom}, ...] from index.json
+
+  fetch('js/ai/versions/index.json')
+    .then(function (res) { return res.ok ? res.json() : []; })
+    .then(function (versions) {
+      availableVersions = versions.slice().sort(function (a, b) { return b.iteration - a.iteration; });
+      updateAiVersionTags();
+    })
+    .catch(function () {
+      // No network / fetch blocked (e.g. some browsers restrict fetch() for
+      // file:// pages) - the default AI_WEIGHTS still works fine, there's
+      // just nothing else to pick from.
+    });
+
   function formatAiVersionText() {
-    var v = window.AI_VERSION;
+    var v = activeVersionInfo;
     if (!v) return 'AI version unknown';
     var label = (v.iteration != null) ? ('AI: iteration ' + v.iteration) : ('AI: ' + v.checkpointFile);
     if (typeof v.elo === 'number') {
@@ -83,6 +104,67 @@
     return setup.players.slice(0, setup.numPlayers).some(function (p) { return p.isAI; });
   }
 
+  function renderAiVersionSelect() {
+    if (!aiVersionSelectEl || availableVersions.length === 0) return;
+    var currentIteration = activeVersionInfo ? activeVersionInfo.iteration : null;
+    aiVersionSelectEl.innerHTML = '';
+    availableVersions.forEach(function (v) {
+      var opt = document.createElement('option');
+      opt.value = String(v.iteration);
+      opt.textContent = 'Iteration ' + v.iteration + ' · Elo ' + Math.round(v.elo) +
+        ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+      if (v.iteration === currentIteration) opt.selected = true;
+      aiVersionSelectEl.appendChild(opt);
+    });
+  }
+
+  // Switches the active AI to a different promoted iteration - the default
+  // (whatever AI_WEIGHTS already loaded as) is reused with no extra fetch,
+  // anything else is fetched on demand. Falls back to whatever was already
+  // active on any failure, so a network hiccup never leaves the AI unusable.
+  function selectAiVersion(iteration) {
+    if (window.AI_VERSION && window.AI_VERSION.iteration === iteration) {
+      activeAiWeights = window.AI_WEIGHTS;
+      activeVersionInfo = window.AI_VERSION;
+      updateAiVersionTags();
+      return;
+    }
+    var entry = availableVersions.filter(function (v) { return v.iteration === iteration; })[0];
+    if (!entry) return;
+    aiVersionSelectEl.disabled = true;
+    fetch('js/ai/versions/' + entry.file)
+      .then(function (res) {
+        if (!res.ok) throw new Error('fetch failed: ' + res.status);
+        return res.json();
+      })
+      .then(function (weights) {
+        activeAiWeights = weights;
+        activeVersionInfo = {
+          iteration: entry.iteration,
+          elo: entry.elo,
+          winRateVsRandom: entry.winRateVsRandom,
+          promoted: true
+        };
+      })
+      .catch(function (err) {
+        console.error('Could not load AI version ' + iteration + ', keeping the current one.', err);
+        renderAiVersionSelect(); // revert the dropdown to whatever's actually active
+      })
+      .then(function () {
+        aiVersionSelectEl.disabled = false;
+        updateAiVersionTags();
+      });
+  }
+
+  // Guarded the same way as the version-tag elements below: a stale cached
+  // copy of index.html from before this element existed must not crash the
+  // rest of setup (see updateAiVersionTags()'s comment for why that matters).
+  if (aiVersionSelectEl) {
+    aiVersionSelectEl.addEventListener('change', function () {
+      selectAiVersion(Number(aiVersionSelectEl.value));
+    });
+  }
+
   function updateAiVersionTags() {
     // Guards against a stale cached copy of index.html from before these
     // elements existed being served alongside a newer ui.js (GitHub Pages'
@@ -90,12 +172,11 @@
     // it's exactly what broke Start Game entirely before this guard existed).
     // A visitor missing the version tag is a much smaller problem than a
     // visitor who can't place a single dot.
-    if (!aiVersionTagEl || !aiVersionTagIngameEl) return;
+    if (!aiVersionSelectEl || !aiVersionTagIngameEl) return;
     var show = anyAiSeatsInPlay();
-    var text = formatAiVersionText();
-    aiVersionTagEl.textContent = text;
-    aiVersionTagEl.classList.toggle('hidden', !show);
-    aiVersionTagIngameEl.textContent = text;
+    aiVersionSelectEl.classList.toggle('hidden', !show || availableVersions.length === 0);
+    renderAiVersionSelect();
+    aiVersionTagIngameEl.textContent = formatAiVersionText();
     aiVersionTagIngameEl.classList.toggle('hidden', !show);
   }
 
@@ -678,7 +759,7 @@
     aiThinkingEl.classList.remove('hidden');
     setTimeout(function () {
       if (epoch !== gameEpoch) return; // game was reset while we were waiting to start
-      var root = MCTS.runMcts(state, AI_WEIGHTS, AI_SIMULATIONS);
+      var root = MCTS.runMcts(state, activeAiWeights, AI_SIMULATIONS);
       var action = MCTS.bestAction(root);
       aiThinkingEl.classList.add('hidden');
       if (epoch !== gameEpoch || action === null) return;

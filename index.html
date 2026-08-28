@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=29">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 
@@ -30,13 +30,13 @@
       <div class="field">
         <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
-        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
+        <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <!-- Lets us confirm which build a device is actually running, since mobile
            browsers cache aggressively. Bump alongside the ?v= cache buster. -->
-      <p class="build-tag">build 29</p>
+      <p class="build-tag">build 30</p>
     </div>
   </section>
 
@@ -85,11 +85,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=29"></script>
-  <script src="js/ai/encode.js?v=29"></script>
-  <script src="js/ai/network.js?v=29"></script>
-  <script src="js/ai/mcts.js?v=29"></script>
-  <script src="js/ai/weights.js?v=29"></script>
-  <script src="js/ui.js?v=29"></script>
+  <script src="js/gameLogic.js?v=30"></script>
+  <script src="js/ai/encode.js?v=30"></script>
+  <script src="js/ai/network.js?v=30"></script>
+  <script src="js/ai/mcts.js?v=30"></script>
+  <script src="js/ai/weights.js?v=30"></script>
+  <script src="js/ui.js?v=30"></script>
 </body>
 </html>

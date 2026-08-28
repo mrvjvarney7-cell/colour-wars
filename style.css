@@ -217,6 +217,18 @@ body {
   padding: 0 4px;
 }
 
+.ai-version-select {
+  margin-top: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 /* ---------- Game screen ---------- */
 
 #game-screen {

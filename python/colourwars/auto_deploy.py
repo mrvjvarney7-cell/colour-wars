@@ -117,12 +117,18 @@ def deploy_promotion(record: dict) -> bool:
          "--checkpoint", checkpoint_path, "--out", os.path.join("..", "js", "ai", "weights.js")],
         cwd=PYTHON_DIR,
     )
+    # Also refreshes js/ai/versions/ (every promoted iteration, individually
+    # fetchable) so the site's AI version picker gains this promotion too -
+    # and, since Elo there is recomputed fresh from the whole promotion
+    # chain each time, keeps every earlier version's displayed Elo correct
+    # too if the chain's shape changes.
+    _run([sys.executable, "-m", "colourwars.export_all_versions"], cwd=PYTHON_DIR)
 
     old_version = _current_cache_buster_version()
     new_version = old_version + 1
     _bump_cache_buster(old_version, new_version)
 
-    _run(["git", "add", "js/ai/weights.js"] + [
+    _run(["git", "add", "js/ai/weights.js", "js/ai/versions"] + [
         os.path.relpath(p, REPO_ROOT).replace(os.sep, "/") for p in HTML_FILES_WITH_CACHE_BUSTER
     ])
 

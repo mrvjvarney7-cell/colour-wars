@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=29">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 
@@ -20,11 +20,11 @@
       <div class="field">
         <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
-        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
+        <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 29</p>
+      <p class="build-tag">build 30</p>
     </div>
   </section>
 
@@ -71,12 +71,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=29"></script>
-  <script src="js/ai/encode.js?v=29"></script>
-  <script src="js/ai/network.js?v=29"></script>
-  <script src="js/ai/mcts.js?v=29"></script>
-  <script src="js/ai/weights.js?v=29"></script>
-  <script src="js/ui.js?v=29"></script>
+  <script src="js/gameLogic.js?v=30"></script>
+  <script src="js/ai/encode.js?v=30"></script>
+  <script src="js/ai/network.js?v=30"></script>
+  <script src="js/ai/mcts.js?v=30"></script>
+  <script src="js/ai/weights.js?v=30"></script>
+  <script src="js/ui.js?v=30"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Regression test for a real reported bug: an AI seated

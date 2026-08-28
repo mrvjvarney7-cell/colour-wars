@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=29">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 
@@ -20,11 +20,11 @@
       <div class="field">
         <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
-        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
+        <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 29</p>
+      <p class="build-tag">build 30</p>
     </div>
   </section>
 
@@ -71,12 +71,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=29"></script>
-  <script src="js/ai/encode.js?v=29"></script>
-  <script src="js/ai/network.js?v=29"></script>
-  <script src="js/ai/mcts.js?v=29"></script>
-  <script src="js/ai/weights.js?v=29"></script>
-  <script src="js/ui.js?v=29"></script>
+  <script src="js/gameLogic.js?v=30"></script>
+  <script src="js/ai/encode.js?v=30"></script>
+  <script src="js/ai/network.js?v=30"></script>
+  <script src="js/ai/mcts.js?v=30"></script>
+  <script src="js/ai/weights.js?v=30"></script>
+  <script src="js/ui.js?v=30"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -120,20 +120,21 @@
           return fail('player 2 AI toggle did not become active after click');
         }
 
-        var versionTag = document.getElementById('ai-version-tag');
-        if (versionTag.classList.contains('hidden')) {
-          return fail('AI version tag should be visible once a seat is toggled to AI');
-        }
-        if (typeof AI_VERSION === 'undefined' || !versionTag.textContent.includes('AI: iteration')) {
-          return fail('AI version tag does not state the iteration: "' + versionTag.textContent + '"');
+        // The version picker's option list is populated from an async fetch
+        // (js/ai/versions/index.json) - see browser_ai_version_select_test.html
+        // for full coverage of that. Here we only need the default AI
+        // (window.AI_VERSION, loaded eagerly with the page - no fetch
+        // involved) to already be in effect, which it is synchronously.
+        if (typeof AI_VERSION === 'undefined' || AI_VERSION.iteration == null) {
+          return fail('AI_VERSION not loaded');
         }
 
         document.getElementById('start-game-btn').click();
 
         var versionTagIngame = document.getElementById('ai-version-tag-ingame');
         if (versionTagIngame.classList.contains('hidden') ||
-            versionTagIngame.textContent !== versionTag.textContent) {
-          return fail('in-game AI version tag should mirror the setup-screen one');
+            versionTagIngame.textContent.indexOf('AI: iteration ' + AI_VERSION.iteration) !== 0) {
+          return fail('in-game AI version tag missing/wrong: "' + versionTagIngame.textContent + '"');
         }
         if (document.getElementById('setup-screen').classList.contains('hidden') === false) {
           return fail('setup screen did not hide after Start Game');

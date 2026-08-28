@@ -42,6 +42,33 @@ def _read_training_log(path: str) -> list:
     return records
 
 
+def compute_promoted_elo_chain(training_log_path: str = TRAINING_LOG_PATH, anchor: float = 1000.0) -> dict:
+    """Elo estimate for every promoted iteration, anchored at the FIRST
+    promotion = `anchor`, chained forward through each later promotion's own
+    measured win_rate_vs_best. This is exact, not approximate: only a
+    promotion ever changes best.pt, so each promoted record's
+    win_rate_vs_best is literally "this iteration vs the previous promoted
+    iteration" - exactly the pairwise comparison an Elo chain needs, already
+    measured over 100 real games rather than estimated.
+
+    Recomputed fresh from the full promotion history every time this is
+    called, rather than trusted from whatever may be stored in past log
+    records - training_log.jsonl may have entries written under an earlier,
+    different anchor convention (e.g. before this function existed, or from
+    a still-running process that hasn't picked up a later correction).
+    """
+    from colourwars.train import win_rate_to_elo_diff  # local import: keeps torch off this module's critical path until needed
+
+    promoted = [r for r in _read_training_log(training_log_path) if r.get("promoted")]
+    chain = {}
+    elo = anchor
+    for i, record in enumerate(promoted):
+        if i > 0:
+            elo += win_rate_to_elo_diff(record["win_rate_vs_best"])
+        chain[record["iteration"]] = elo
+    return chain
+
+
 def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_LOG_PATH) -> dict:
     """Best-effort metadata about which training iteration a checkpoint is
     from, so the browser can display it. Falls back to just the filename
@@ -57,6 +84,8 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
         "exportedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
+    elo_chain = compute_promoted_elo_chain(training_log_path)
+
     match = _ITER_RE.search(checkpoint_file)
     if match:
         iteration = int(match.group(1))
@@ -66,7 +95,7 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
                 info["winRateVsRandom"] = record.get("win_rate_vs_random")
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
                 info["promoted"] = record.get("promoted")
-                info["elo"] = record.get("elo")
+                info["elo"] = elo_chain.get(iteration)
                 break
     elif checkpoint_file == "best.pt":
         # best.pt is whichever candidate most recently beat the previous
@@ -77,7 +106,7 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
                 info["winRateVsRandom"] = record.get("win_rate_vs_random")
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
                 info["promoted"] = True
-                info["elo"] = record.get("elo")
+                info["elo"] = elo_chain.get(record.get("iteration"))
                 break
 
     return info
