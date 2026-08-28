@@ -35,11 +35,12 @@ TRAINING_LOG_PATH = os.path.join(CHECKPOINT_DIR, "training_log.jsonl")
 WEIGHTS_JS_PATH = os.path.join(REPO_ROOT, "js", "ai", "weights.js")
 
 # Every file that carries the site's `?v=N` cache buster / `build N` tag;
-# kept in sync so the two browser test fixtures never drift from index.html.
+# kept in sync so the browser test fixtures never drift from index.html.
 HTML_FILES_WITH_CACHE_BUSTER = [
     os.path.join(REPO_ROOT, "index.html"),
     os.path.join(REPO_ROOT, "browser_ai_e2e_test.html"),
     os.path.join(REPO_ROOT, "ai_move_timing_test.html"),
+    os.path.join(REPO_ROOT, "browser_ai_seat0_test.html"),
 ]
 
 POLL_SECONDS = 120

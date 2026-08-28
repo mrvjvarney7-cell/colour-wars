@@ -492,6 +492,12 @@
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     updateAiVersionTags();
+    // Every other AI turn is kicked off reactively, from inside commitMove()
+    // after a preceding move - but the very first turn of a new game has no
+    // preceding move to react to. Without this, an AI seated at seat 0 would
+    // never play at all, and since it's not the human's turn either, the
+    // game would just sit there looking stuck.
+    maybePlayAiTurn(gameEpoch);
   }
 
   function backToSetup() {

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Colour Wars</title>
+<link rel="stylesheet" href="style.css?v=24">
+</head>
+<body>
+
+  <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours &amp; opponents</div>
+        <div id="player-list" class="player-list"></div>
+        <p class="ai-version-tag hidden" id="ai-version-tag"></p>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+      <p class="build-tag">build 24</p>
+    </div>
+  </section>
+
+  <section id="game-screen" class="screen hidden">
+    <header class="turn-bar" id="turn-bar">
+      <div class="turn-indicator" id="turn-indicator">
+        <span class="turn-dot" id="turn-dot"></span>
+        <span id="turn-label">Player 1's turn</span>
+        <span id="ai-thinking" class="ai-thinking hidden">
+          <span class="ai-thinking-dot"></span>
+          <span class="ai-thinking-dot"></span>
+          <span class="ai-thinking-dot"></span>
+          AI is thinking&hellip;
+        </span>
+      </div>
+      <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+    </header>
+    <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
+
+    <div class="players-strip" id="players-strip"></div>
+
+    <div class="board-wrap">
+      <div class="board" id="board"></div>
+      <div class="fx-layer" id="fx-layer"></div>
+    </div>
+  </section>
+
+  <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js?v=24"></script>
+  <script src="js/ai/encode.js?v=24"></script>
+  <script src="js/ai/network.js?v=24"></script>
+  <script src="js/ai/mcts.js?v=24"></script>
+  <script src="js/ai/weights.js?v=24"></script>
+  <script src="js/ui.js?v=24"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Regression test for a real reported bug: an AI seated
+       at seat 0 (Player 1) never played, because maybePlayAiTurn() was only
+       ever triggered reactively from inside commitMove() after a preceding
+       move - the very first turn of a new game has no preceding move to
+       react to. Drives the real, unmodified UI via real DOM events, then
+       writes a JSON summary into document.title for the headless-Edge
+       --dump-dom capture to read back. -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) {
+        document.title = 'RESULT:' + JSON.stringify(obj);
+      }
+
+      function fail(reason) {
+        report({ ok: false, reason: reason, errors: errors });
+      }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+        if (typeof MCTS === 'undefined') return fail('MCTS did not load');
+        if (typeof AI_WEIGHTS === 'undefined') return fail('AI_WEIGHTS did not load');
+
+        // Make Player 1 (seat 0) the AI - the exact reported bug scenario.
+        var rows = document.querySelectorAll('#player-list .player-row');
+        if (rows.length !== 2) return fail('expected 2 player rows by default, got ' + rows.length);
+        rows[0].querySelector('.ai-toggle-btn').click();
+
+        rows = document.querySelectorAll('#player-list .player-row');
+        var toggles = [];
+        rows.forEach(function (r) { toggles.push(r.querySelector('.ai-toggle-btn').classList.contains('active')); });
+        if (JSON.stringify(toggles) !== JSON.stringify([true, false])) {
+          return fail('expected only seat 0 to be AI, got ' + JSON.stringify(toggles));
+        }
+
+        document.getElementById('start-game-btn').click();
+        if (document.getElementById('setup-screen').classList.contains('hidden') === false) {
+          return fail('setup screen did not hide after Start Game');
+        }
+        if (document.getElementById('game-screen').classList.contains('hidden')) {
+          return fail('game screen did not show after Start Game');
+        }
+
+        var pollCount = 0;
+        var maxPolls = 400; // 400 * 150ms = 60s ceiling
+        var thinkingWasShown = false;
+
+        var poll = setInterval(function () {
+          pollCount++;
+          var thinkingEl = document.getElementById('ai-thinking');
+          if (!thinkingEl.classList.contains('hidden')) thinkingWasShown = true;
+          var owned = document.querySelectorAll('.cell.owned').length;
+          var stillThinking = !thinkingEl.classList.contains('hidden');
+          var turnLabel = document.getElementById('turn-label').textContent;
+
+          if (!stillThinking && owned >= 1) {
+            clearInterval(poll);
+            report({
+              ok: errors.length === 0 && owned === 1 && turnLabel.indexOf('Player 2') === 0,
+              errors: errors,
+              thinkingWasShown: thinkingWasShown,
+              ownedAfterAiOpening: owned,
+              turnLabel: turnLabel
+            });
+          } else if (pollCount >= maxPolls) {
+            clearInterval(poll);
+            fail('AI seat 0 never played its opening move - stuck (owned=' + owned + ', turnLabel=' + turnLabel + ')');
+          }
+        }, 150);
+      } catch (e) {
+        fail('exception: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>
