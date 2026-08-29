@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=33">
+<link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
 
@@ -34,17 +34,27 @@
       <div class="field">
         <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
-        <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
         <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
           <input type="checkbox" id="ai-insight-toggle-input" checked>
           Show AI's win chance &amp; considered moves
         </label>
       </div>
 
+      <div class="field">
+        <div class="field-label">Analysis</div>
+        <!-- Not gated behind any AI seat being in play - a neutral analysis
+             engine (the default bundled network), same idea as a chess
+             site's eval bar not caring which bot you're actually playing. -->
+        <label class="ai-insight-toggle" id="policy-heatmap-toggle">
+          <input type="checkbox" id="policy-heatmap-toggle-input">
+          Show policy heatmap
+        </label>
+      </div>
+
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <!-- Lets us confirm which build a device is actually running, since mobile
            browsers cache aggressively. Bump alongside the ?v= cache buster. -->
-      <p class="build-tag">build 33</p>
+      <p class="build-tag">build 38</p>
     </div>
   </section>
 
@@ -66,7 +76,6 @@
           </div>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
         </header>
-        <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
 
         <div class="players-strip" id="players-strip"></div>
         <div class="stats-panel" id="stats-panel"></div>
@@ -93,11 +102,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=33"></script>
-  <script src="js/ai/encode.js?v=33"></script>
-  <script src="js/ai/network.js?v=33"></script>
-  <script src="js/ai/mcts.js?v=33"></script>
-  <script src="js/ai/weights.js?v=33"></script>
-  <script src="js/ui.js?v=33"></script>
+  <script src="js/gameLogic.js?v=38"></script>
+  <script src="js/ai/encode.js?v=38"></script>
+  <script src="js/ai/network.js?v=38"></script>
+  <script src="js/ai/mcts.js?v=38"></script>
+  <script src="js/ai/weights.js?v=38"></script>
+  <script src="js/ui.js?v=38"></script>
 </body>
 </html>

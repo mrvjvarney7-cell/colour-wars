@@ -3,30 +3,42 @@
     "iteration": 3,
     "file": "iter3.json",
     "elo": 0,
-    "winRateVsRandom": 0.9
+    "winRateVsRandom": 0.9,
+    "measuredOnFixedHarness": false
   },
   {
     "iteration": 5,
     "file": "iter5.json",
     "elo": 0,
-    "winRateVsRandom": 0.95
+    "winRateVsRandom": 0.95,
+    "measuredOnFixedHarness": false
   },
   {
     "iteration": 7,
     "file": "iter7.json",
     "elo": 0,
-    "winRateVsRandom": 0.99
+    "winRateVsRandom": 0.99,
+    "measuredOnFixedHarness": false
   },
   {
     "iteration": 11,
     "file": "iter11.json",
     "elo": 0,
-    "winRateVsRandom": 1.0
+    "winRateVsRandom": 1.0,
+    "measuredOnFixedHarness": false
   },
   {
     "iteration": 29,
     "file": "iter29.json",
     "elo": 90,
-    "winRateVsRandom": 0.98
+    "winRateVsRandom": 0.98,
+    "measuredOnFixedHarness": false
+  },
+  {
+    "iteration": 30,
+    "file": "iter30.json",
+    "elo": 147,
+    "winRateVsRandom": 0.98,
+    "measuredOnFixedHarness": false
   }
 ]

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=33">
+<link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
 
@@ -22,7 +22,6 @@
       <div class="field">
         <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
-        <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
         <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
           <input type="checkbox" id="ai-insight-toggle-input" checked>
           Show AI's win chance &amp; considered moves
@@ -30,7 +29,7 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 33</p>
+      <p class="build-tag">build 38</p>
     </div>
   </section>
 
@@ -51,7 +50,6 @@
           </div>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
         </header>
-        <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
 
         <div class="players-strip" id="players-strip"></div>
         <div class="stats-panel" id="stats-panel"></div>
@@ -77,12 +75,12 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=33"></script>
-  <script src="js/ai/encode.js?v=33"></script>
-  <script src="js/ai/network.js?v=33"></script>
-  <script src="js/ai/mcts.js?v=33"></script>
-  <script src="js/ai/weights.js?v=33"></script>
-  <script src="js/ui.js?v=33"></script>
+  <script src="js/gameLogic.js?v=38"></script>
+  <script src="js/ai/encode.js?v=38"></script>
+  <script src="js/ai/network.js?v=38"></script>
+  <script src="js/ai/mcts.js?v=38"></script>
+  <script src="js/ai/weights.js?v=38"></script>
+  <script src="js/ui.js?v=38"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
        shipped page. Drives the real, unmodified UI above via real DOM
@@ -137,10 +135,15 @@
 
         document.getElementById('start-game-btn').click();
 
-        var versionTagIngame = document.getElementById('ai-version-tag-ingame');
-        if (versionTagIngame.classList.contains('hidden') ||
-            versionTagIngame.textContent.indexOf('AI: iteration ' + AI_VERSION.iteration) !== 0) {
-          return fail('in-game AI version tag missing/wrong: "' + versionTagIngame.textContent + '"');
+        // Version info is shown per-seat now (each AI opponent can be a
+        // different checkpoint - see browser_ai_version_select_test.html for
+        // full per-seat picker coverage) - seat 1's chip should carry the
+        // default AI_VERSION's iteration, since its picker was never touched.
+        var seat1Chip = document.querySelectorAll('.player-chip')[1];
+        var seat1VersionLabel = seat1Chip ? seat1Chip.querySelector('.player-chip-ai-version') : null;
+        if (!seat1VersionLabel || seat1VersionLabel.textContent !== 'iter ' + AI_VERSION.iteration) {
+          return fail('player 2 chip AI version label missing/wrong: "' +
+            (seat1VersionLabel ? seat1VersionLabel.textContent : null) + '"');
         }
         if (document.getElementById('setup-screen').classList.contains('hidden') === false) {
           return fail('setup screen did not hide after Start Game');

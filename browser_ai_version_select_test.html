@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Colour Wars</title>
-<link rel="stylesheet" href="style.css?v=33">
+<link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
 
@@ -22,7 +22,6 @@
       <div class="field">
         <div class="field-label">Colours &amp; opponents</div>
         <div id="player-list" class="player-list"></div>
-        <select class="ai-version-select hidden" id="ai-version-select" aria-label="AI version to play against"></select>
         <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
           <input type="checkbox" id="ai-insight-toggle-input" checked>
           Show AI's win chance &amp; considered moves
@@ -30,7 +29,7 @@
       </div>
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <p class="build-tag">build 33</p>
+      <p class="build-tag">build 38</p>
     </div>
   </section>
 
@@ -51,7 +50,6 @@
           </div>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
         </header>
-        <p class="ai-version-tag ai-version-tag-ingame hidden" id="ai-version-tag-ingame"></p>
 
         <div class="players-strip" id="players-strip"></div>
         <div class="stats-panel" id="stats-panel"></div>
@@ -77,21 +75,22 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=33"></script>
-  <script src="js/ai/encode.js?v=33"></script>
-  <script src="js/ai/network.js?v=33"></script>
-  <script src="js/ai/mcts.js?v=33"></script>
-  <script src="js/ai/weights.js?v=33"></script>
-  <script src="js/ui.js?v=33"></script>
+  <script src="js/gameLogic.js?v=38"></script>
+  <script src="js/ai/encode.js?v=38"></script>
+  <script src="js/ai/network.js?v=38"></script>
+  <script src="js/ai/mcts.js?v=38"></script>
+  <script src="js/ai/weights.js?v=38"></script>
+  <script src="js/ui.js?v=38"></script>
 
   <!-- TEST-ONLY automation harness, appended for this run - not part of the
-       shipped page. Covers the AI version picker: the dropdown populates
-       from the async js/ai/versions/index.json fetch, lists every promoted
-       iteration, and switching to a non-default one actually changes which
-       weights power the AI's real moves (not just the displayed label) -
-       run with --allow-file-access-from-files, since Chromium blocks
-       fetch() for plain file:// pages otherwise (this feature works
-       unrestricted once actually served over https, e.g. GitHub Pages). -->
+       shipped page. Covers the PER-SEAT AI version picker: each AI player's
+       row gets its own <select>, populated from the async
+       js/ai/versions/index.json fetch, and two different AI seats choosing
+       two different checkpoints actually end up running two different
+       networks (not just showing two different labels) - run with
+       --allow-file-access-from-files, since Chromium blocks fetch() for
+       plain file:// pages otherwise (this feature works unrestricted once
+       actually served over https, e.g. GitHub Pages). -->
   <script>
     (function () {
       'use strict';
@@ -115,103 +114,128 @@
         if (typeof AI_WEIGHTS === 'undefined') return fail('AI_WEIGHTS did not load');
         if (typeof AI_VERSION === 'undefined') return fail('AI_VERSION did not load');
 
+        // 3 players: seat 0 stays human, seats 1 and 2 both become AI - the
+        // actual point of this test is that they can pick DIFFERENT
+        // checkpoints independently, which needs at least 2 AI seats.
+        document.querySelectorAll('#player-count-buttons button')[1].click(); // "3"
         var rows = document.querySelectorAll('#player-list .player-row');
+        if (rows.length !== 3) return fail('expected 3 player rows after selecting 3p, got ' + rows.length);
         rows[1].querySelector('.ai-toggle-btn').click(); // seat 1 -> AI
+        rows[2].querySelector('.ai-toggle-btn').click(); // seat 2 -> AI
 
         var pollCount = 0;
-        function waitForVersionOptions() {
+        function waitForVersionSelects() {
           pollCount++;
-          var select = document.getElementById('ai-version-select');
-          if (select && !select.classList.contains('hidden') && select.options.length > 0) {
-            afterOptionsLoaded(select);
+          var freshRows = document.querySelectorAll('#player-list .player-row');
+          var sel1 = freshRows[1] ? freshRows[1].querySelector('.player-ai-version-select') : null;
+          var sel2 = freshRows[2] ? freshRows[2].querySelector('.player-ai-version-select') : null;
+          if (sel1 && sel2 && sel1.options.length > 1 && sel2.options.length > 1) {
+            afterSelectsPopulated(sel1, sel2);
           } else if (pollCount >= 50) { // 50 * 100ms = 5s
-            fail('AI version select never populated (fetch of versions/index.json may have failed)');
+            fail('per-seat version selects never populated (fetch of versions/index.json may have failed) - ' +
+              'sel1 options=' + (sel1 ? sel1.options.length : 'n/a') + ' sel2 options=' + (sel2 ? sel2.options.length : 'n/a'));
           } else {
-            setTimeout(waitForVersionOptions, 100);
+            setTimeout(waitForVersionSelects, 100);
           }
         }
 
-        function afterOptionsLoaded(select) {
+        function afterSelectsPopulated(sel1, sel2) {
           try {
             var optionsCheck = { ok: true };
-            var texts = Array.from(select.options).map(function (o) { return o.textContent; });
-            var iterations = Array.from(select.options).map(function (o) { return Number(o.value); });
-            if (select.options.length !== 4) {
-              optionsCheck = { ok: false, reason: 'expected 4 promoted versions, got ' + select.options.length, texts: texts };
-            } else if (JSON.stringify(iterations) !== JSON.stringify([11, 7, 5, 3])) {
-              optionsCheck = { ok: false, reason: 'expected iterations sorted [11,7,5,3], got ' + JSON.stringify(iterations) };
-            } else if (!/^Iteration 11 · Elo \d+ · \d+% vs random$/.test(texts[0])) {
-              optionsCheck = { ok: false, reason: 'unexpected option text: "' + texts[0] + '"' };
-            } else if (Number(select.value) !== AI_VERSION.iteration) {
-              optionsCheck = { ok: false, reason: 'default selection should match the eagerly-loaded AI_VERSION (' + AI_VERSION.iteration + '), got ' + select.value };
+            var texts1 = Array.from(sel1.options).map(function (o) { return o.textContent; });
+            if (sel1.options[0].value !== '' || texts1[0].indexOf('Latest (iteration ' + AI_VERSION.iteration + ')') !== 0) {
+              optionsCheck = { ok: false, reason: 'expected first option to be the default "Latest", got "' + texts1[0] + '"' };
+            } else if (sel1.value !== '') {
+              optionsCheck = { ok: false, reason: 'expected seat 1 to default to "Latest" (value ""), got "' + sel1.value + '"' };
+            } else if (sel2.value !== '') {
+              optionsCheck = { ok: false, reason: 'expected seat 2 to default to "Latest" (value ""), got "' + sel2.value + '"' };
             }
             if (!optionsCheck.ok) return report({ ok: false, errors: errors, optionsCheck: optionsCheck });
 
-            // Switch to iteration 3 (the oldest/weakest promoted version) -
-            // triggers an on-demand fetch of its weights.
-            select.value = '3';
-            select.dispatchEvent(new Event('change'));
+            // Pick two DIFFERENT non-default iterations, one per seat.
+            var nonDefaultValues = Array.from(sel1.options).map(function (o) { return o.value; }).filter(function (v) { return v !== ''; });
+            if (nonDefaultValues.length < 2) {
+              return fail('need at least 2 non-default versions available to test independence, got ' + nonDefaultValues.length);
+            }
+            var iterForSeat1 = nonDefaultValues[nonDefaultValues.length - 1]; // oldest/weakest
+            var iterForSeat2 = nonDefaultValues[0]; // newest available besides the default
 
-            var switchPollCount = 0;
-            function waitForSwitch() {
-              switchPollCount++;
-              if (!select.disabled) {
-                afterSwitch(optionsCheck);
-              } else if (switchPollCount >= 50) {
-                fail('AI version switch never finished (select stayed disabled)');
+            sel1.value = iterForSeat1;
+            sel1.dispatchEvent(new Event('change'));
+            sel2.value = iterForSeat2;
+            sel2.dispatchEvent(new Event('change'));
+
+            // Skip the win%/considered-moves display so consecutive AI turns
+            // don't each pay its ~1.4s pause - irrelevant to what this test checks.
+            var insightToggle = document.getElementById('ai-insight-toggle-input');
+            if (insightToggle && insightToggle.checked) insightToggle.click();
+
+            document.getElementById('start-game-btn').click();
+
+            var startPollCount = 0;
+            function waitForGameStart() {
+              startPollCount++;
+              if (!document.getElementById('game-screen').classList.contains('hidden')) {
+                afterGameStarted(optionsCheck, iterForSeat1, iterForSeat2);
+              } else if (startPollCount >= 100) { // Start Game waits on any pending per-seat version fetch
+                fail('game screen never appeared after Start Game (stuck loading AI versions?) - button text: "' +
+                  document.getElementById('start-game-btn').textContent + '"');
               } else {
-                setTimeout(waitForSwitch, 100);
+                setTimeout(waitForGameStart, 100);
               }
             }
-            // Give the disabled flag a moment to actually be set before
-            // polling for it to clear again - the fetch may resolve fast.
-            setTimeout(waitForSwitch, 50);
+            waitForGameStart();
           } catch (e) {
-            fail('exception in afterOptionsLoaded: ' + e.message);
+            fail('exception in afterSelectsPopulated: ' + e.message);
           }
         }
 
-        function afterSwitch(optionsCheck) {
+        function afterGameStarted(optionsCheck, iterForSeat1, iterForSeat2) {
           try {
-            document.getElementById('start-game-btn').click();
-            var tagIngame = document.getElementById('ai-version-tag-ingame');
-            var switchCheck = { ok: true };
-            if (tagIngame.classList.contains('hidden') || tagIngame.textContent.indexOf('AI: iteration 3') !== 0) {
-              switchCheck = { ok: false, reason: 'in-game tag should show iteration 3 after switching: "' + tagIngame.textContent + '"' };
+            var chips = document.querySelectorAll('.player-chip');
+            var chipCheck = { ok: true };
+            var seat1Label = chips[1] ? chips[1].querySelector('.player-chip-ai-version') : null;
+            var seat2Label = chips[2] ? chips[2].querySelector('.player-chip-ai-version') : null;
+            if (!seat1Label || seat1Label.textContent !== 'iter ' + iterForSeat1) {
+              chipCheck = { ok: false, reason: 'seat 1 chip should show iter ' + iterForSeat1 + ', got "' + (seat1Label ? seat1Label.textContent : null) + '"' };
+            } else if (!seat2Label || seat2Label.textContent !== 'iter ' + iterForSeat2) {
+              chipCheck = { ok: false, reason: 'seat 2 chip should show iter ' + iterForSeat2 + ', got "' + (seat2Label ? seat2Label.textContent : null) + '"' };
             }
+            if (!chipCheck.ok) return report({ ok: false, errors: errors, optionsCheck: optionsCheck, chipCheck: chipCheck });
 
-            // Prove the switch is real, not just cosmetic: let the human
-            // open, then confirm the AI (now running iteration 3's weights)
-            // actually computes and plays a move.
+            // Prove both distinct-checkpoint seats can actually play, not
+            // just display the right label: human opens, then both AI seats
+            // (each running a DIFFERENT network) should play automatically,
+            // landing back on the human with all 3 opening moves placed.
             document.querySelector('.cell[data-row="3"][data-col="3"]').click();
 
             var movePollCount = 0;
             var poll = setInterval(function () {
               movePollCount++;
-              var thinkingEl = document.getElementById('ai-thinking');
-              var stillThinking = !thinkingEl.classList.contains('hidden');
+              var stillThinking = !document.getElementById('ai-thinking').classList.contains('hidden');
               var owned = document.querySelectorAll('.cell.owned').length;
-              if (!stillThinking && owned >= 2) {
+              var turnLabel = document.getElementById('turn-label').textContent;
+              if (!stillThinking && owned >= 3 && turnLabel.indexOf('Player 1') === 0) {
                 clearInterval(poll);
                 report({
-                  ok: errors.length === 0 && optionsCheck.ok && switchCheck.ok,
+                  ok: errors.length === 0 && optionsCheck.ok && chipCheck.ok,
                   errors: errors,
                   optionsCheck: optionsCheck,
-                  switchCheck: switchCheck,
-                  ownedAfterSwitchedAiMove: owned,
-                  turnLabel: document.getElementById('turn-label').textContent
+                  chipCheck: chipCheck,
+                  ownedAfterBothAiMoved: owned,
+                  turnLabel: turnLabel
                 });
-              } else if (movePollCount >= 400) {
+              } else if (movePollCount >= 400) { // 400 * 150ms = 60s
                 clearInterval(poll);
-                fail('timed out waiting for the switched AI to move (owned=' + owned + ')');
+                fail('timed out waiting for both distinct-checkpoint AI seats to move (owned=' + owned + ', turnLabel="' + turnLabel + '")');
               }
             }, 150);
           } catch (e) {
-            fail('exception in afterSwitch: ' + e.message);
+            fail('exception in afterGameStarted: ' + e.message);
           }
         }
 
-        waitForVersionOptions();
+        waitForVersionSelects();
       } catch (e) {
         fail('exception in test driver: ' + e.message);
       }
