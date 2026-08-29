@@ -54,5 +54,13 @@
     "winRateVsRandom": 0.97,
     "measuredOnFixedHarness": true,
     "preReset": false
+  },
+  {
+    "iteration": 32,
+    "file": "iter32.json",
+    "elo": 625,
+    "winRateVsRandom": 0.99,
+    "measuredOnFixedHarness": true,
+    "preReset": false
   }
 ]
