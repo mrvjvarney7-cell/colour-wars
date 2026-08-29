@@ -203,6 +203,20 @@
   <script src="js/ai/weights.js?v=51"></script>
   <script src="js/ui.js?v=51"></script>
 <script>
+    // Covers hash routing (added on top of showScreen()): nav-equivalent
+    // actions keep location.hash in sync, a bare hash write (simulating the
+    // browser's own back/forward) drives the screen the other way, an
+    // unrecognized route leaves the current screen alone, a bookmarked
+    // hash-only link lands directly on that screen, and - the one that
+    // actually matters - a ?cwn= link always wins over any hash also
+    // present in the URL, landing on the board either way.
+    //
+    // Three scenarios share this one fixture, keyed off the URL used to
+    // load it (see run_browser_routing_test.py, which loads this same file
+    // several different ways and aggregates the results):
+    //   - plain load (no ?cwn=, no interesting hash): mid-session checks
+    //   - #/rules only: initial hash-only routing
+    //   - ?cwn=... (with or without a hash too): ?cwn= precedence
     (function () {
       'use strict';
       var errors = [];
@@ -214,71 +228,108 @@
       function report(obj) {
         document.title = 'RESULT:' + JSON.stringify(obj);
       }
-
       function fail(reason) {
         report({ ok: false, reason: reason, errors: errors });
       }
-
-      try {
-        var btn = document.getElementById('theme-toggle-btn');
-        if (!btn) return fail('theme toggle button not found');
-
-        var initialTheme = document.documentElement.getAttribute('data-theme');
-        var initialBg = getComputedStyle(document.body).backgroundColor;
-        var initialLabel = btn.textContent.trim();
-
-        var defaultCheck = { ok: true };
-        if (initialTheme !== 'dark') {
-          defaultCheck = { ok: false, reason: 'expected dark by default (no OS/localStorage signal), got "' + initialTheme + '"' };
-        } else if (initialLabel !== 'Light mode') {
-          defaultCheck = { ok: false, reason: 'expected button to read "Light mode" while dark, got "' + initialLabel + '"' };
-        }
-
-        btn.click(); // dark -> light
-
-        var afterFirstClickTheme = document.documentElement.getAttribute('data-theme');
-        var afterFirstClickBg = getComputedStyle(document.body).backgroundColor;
-        var afterFirstClickLabel = btn.textContent.trim();
-        var afterFirstClickAria = btn.getAttribute('aria-label');
-        var stored = null;
-        try { stored = localStorage.getItem('colourwars-theme'); } catch (e) { /* ignore */ }
-
-        var switchCheck = { ok: true };
-        if (afterFirstClickTheme !== 'light') {
-          switchCheck = { ok: false, reason: 'expected data-theme="light" after one click, got "' + afterFirstClickTheme + '"' };
-        } else if (afterFirstClickBg === initialBg) {
-          switchCheck = { ok: false, reason: 'background colour did not actually change: still "' + afterFirstClickBg + '"' };
-        } else if (afterFirstClickLabel !== 'Dark mode') {
-          switchCheck = { ok: false, reason: 'expected button to read "Dark mode" while light, got "' + afterFirstClickLabel + '"' };
-        } else if (afterFirstClickAria.indexOf('dark') === -1) {
-          switchCheck = { ok: false, reason: 'aria-label should mention switching to dark: "' + afterFirstClickAria + '"' };
-        } else if (stored !== 'light') {
-          switchCheck = { ok: false, reason: 'expected localStorage to persist "light", got ' + JSON.stringify(stored) };
-        }
-
-        btn.click(); // light -> dark, back to start
-
-        var afterSecondClickTheme = document.documentElement.getAttribute('data-theme');
-        var afterSecondClickBg = getComputedStyle(document.body).backgroundColor;
-        var roundTripCheck = { ok: true };
-        if (afterSecondClickTheme !== 'dark') {
-          roundTripCheck = { ok: false, reason: 'expected back to dark after a second click, got "' + afterSecondClickTheme + '"' };
-        } else if (afterSecondClickBg !== initialBg) {
-          roundTripCheck = { ok: false, reason: 'background did not return to the original dark value' };
-        }
-
-        report({
-          ok: errors.length === 0 && defaultCheck.ok && switchCheck.ok && roundTripCheck.ok,
-          errors: errors,
-          defaultCheck: defaultCheck,
-          switchCheck: switchCheck,
-          roundTripCheck: roundTripCheck,
-          initialBg: initialBg,
-          afterFirstClickBg: afterFirstClickBg
-        });
-      } catch (e) {
-        fail('exception in test driver: ' + e.message);
+      function isVisible(id) {
+        var el = document.getElementById(id);
+        return !!el && !el.classList.contains('hidden');
       }
+
+      setTimeout(function () {
+        try {
+          var initialHash = location.hash;
+          var initialSearch = location.search;
+
+          if (initialSearch.indexOf('cwn=') !== -1) {
+            report({
+              ok: errors.length === 0 && isVisible('game-screen') &&
+                  !isVisible('setup-screen') && !isVisible('history-screen') &&
+                  location.hash === '#/game',
+              errors: errors,
+              scenario: 'cwn',
+              initialHash: initialHash,
+              hashAfterLoad: location.hash,
+              gameVisible: isVisible('game-screen'),
+              setupVisible: isVisible('setup-screen'),
+              historyVisible: isVisible('history-screen')
+            });
+            return;
+          }
+
+          if (initialHash && initialHash !== '#/play') {
+            report({
+              ok: errors.length === 0 && isVisible('rules-screen') && !isVisible('setup-screen'),
+              errors: errors,
+              scenario: 'hash-only',
+              initialHash: initialHash,
+              rulesVisible: isVisible('rules-screen'),
+              setupVisible: isVisible('setup-screen')
+            });
+            return;
+          }
+
+          var checks = {};
+
+          document.getElementById('open-history-btn').click();
+          checks.afterOpenHistory = {
+            hash: location.hash,
+            historyVisible: isVisible('history-screen'),
+            hasStatsRendered: document.getElementById('history-stats-panel').children.length > 0
+          };
+
+          document.getElementById('back-from-history-btn').click();
+          checks.afterCloseHistory = { hash: location.hash, setupVisible: isVisible('setup-screen') };
+
+          document.getElementById('open-rules-btn').click();
+          checks.afterOpenRules = { hash: location.hash, rulesVisible: isVisible('rules-screen') };
+
+          document.getElementById('back-from-rules-btn').click();
+          checks.afterCloseRules = { hash: location.hash, setupVisible: isVisible('setup-screen') };
+
+          // Simulate the browser's own back/forward: a bare hash write, no
+          // button click at all - exactly what popping browser history does.
+          location.hash = '#/games';
+          setTimeout(function () {
+            checks.afterSimulatedBackToGames = {
+              historyVisible: isVisible('history-screen'),
+              setupVisible: isVisible('setup-screen')
+            };
+
+            location.hash = '#/rules';
+            setTimeout(function () {
+              checks.afterSimulatedForwardToRules = {
+                rulesVisible: isVisible('rules-screen'),
+                historyVisible: isVisible('history-screen')
+              };
+
+              // An unrecognized route must leave the current screen alone,
+              // not blank the page or fall back to a guess.
+              location.hash = '#/nonexistent-route';
+              setTimeout(function () {
+                checks.afterUnknownRoute = {
+                  rulesStillVisible: isVisible('rules-screen'),
+                  hash: location.hash
+                };
+
+                var ok = errors.length === 0 &&
+                  checks.afterOpenHistory.hash === '#/games' && checks.afterOpenHistory.historyVisible &&
+                  checks.afterOpenHistory.hasStatsRendered &&
+                  checks.afterCloseHistory.hash === '#/play' && checks.afterCloseHistory.setupVisible &&
+                  checks.afterOpenRules.hash === '#/rules' && checks.afterOpenRules.rulesVisible &&
+                  checks.afterCloseRules.hash === '#/play' && checks.afterCloseRules.setupVisible &&
+                  checks.afterSimulatedBackToGames.historyVisible && !checks.afterSimulatedBackToGames.setupVisible &&
+                  checks.afterSimulatedForwardToRules.rulesVisible && !checks.afterSimulatedForwardToRules.historyVisible &&
+                  checks.afterUnknownRoute.rulesStillVisible;
+
+                report({ ok: ok, errors: errors, scenario: 'mid-session', checks: checks });
+              }, 50);
+            }, 50);
+          }, 50);
+        } catch (e) {
+          fail('exception in test driver: ' + e.message);
+        }
+      }, 300);
     })();
   </script>
 </body>

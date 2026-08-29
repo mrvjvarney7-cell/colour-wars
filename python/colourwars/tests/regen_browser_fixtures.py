@@ -46,6 +46,7 @@ FIXTURES = [
     "browser_policy_heatmap_test.html",
     "browser_puzzle_test.html",
     "browser_rules_test.html",
+    "browser_routing_test.html",
     "browser_theme_toggle_test.html",
 ]
 

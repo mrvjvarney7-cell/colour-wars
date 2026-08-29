@@ -83,7 +83,11 @@
     rules: rulesScreen
   };
 
-  function showScreen(name) {
+  // DOM-only: swaps which screen is visible, touches nothing else. Kept
+  // separate from showScreen() below so the hashchange listener can apply a
+  // route without writing location.hash right back (which would just cause
+  // a redundant, harmless-but-wasteful second hashchange).
+  function applyScreen(name) {
     Object.keys(screensByName).forEach(function (key) {
       // Guarded: older browser-test fixtures are static copies of markup
       // from before history/rules screens existed, so they don't have every
@@ -93,6 +97,52 @@
     });
     if (winScreen) winScreen.classList.add('hidden');
   }
+
+  // Every screen has a public route name distinct from its internal key -
+  // "play"/"games" rather than "setup"/"history" - because those are the
+  // names that will actually show up in the address bar and get shared.
+  // "game" (the board) has no nav item of its own - you only ever reach it
+  // by way of Play's start button, a replayed/shared position, or (later)
+  // Puzzle/Analysis - so it gets a neutral route rather than one implying a
+  // specific way of getting there. Deliberately NOT here: puzzle/analysis
+  // mode. Those are launcher actions that land on the "game" screen with
+  // different chrome, not screens of their own - giving them their own
+  // route would mean tracking the same "what are we showing" state in two
+  // places (the hash AND the inPuzzleMode-style flag), which is exactly the
+  // drift this whole rework is meant to rule out.
+  var ROUTE_FOR_SCREEN = { setup: 'play', game: 'game', history: 'games', rules: 'rules' };
+  var SCREEN_FOR_ROUTE = { play: 'setup', game: 'game', games: 'history', rules: 'rules' };
+
+  // The single place every screen transition goes through - every call site
+  // used to hand-toggle .hidden on whichever two screens it cared about,
+  // duplicated per transition; now they all call this, so the address bar
+  // can never drift from what's actually on screen. winScreen is an overlay
+  // drawn ON TOP of the game screen, not one of the swappable screens here,
+  // so it isn't in screensByName/ROUTE_FOR_SCREEN - applyScreen() always
+  // hides it (every real transition should start from a clean, non-overlaid
+  // view); showWinScreen() is the only thing that ever reveals it, when a
+  // game actually just ended.
+  function showScreen(name) {
+    applyScreen(name);
+    var route = ROUTE_FOR_SCREEN[name];
+    if (route && location.hash !== '#/' + route) location.hash = '#/' + route;
+  }
+
+  window.addEventListener('hashchange', function () {
+    var route = location.hash.replace(/^#\/?/, '');
+    var name = SCREEN_FOR_ROUTE[route];
+    // An unrecognized/empty route (including one that names a screen that
+    // doesn't exist YET, e.g. a future #/bots typed in by hand) leaves
+    // whatever's currently showing alone rather than forcing a change -
+    // there's nothing sensible to fall back to that isn't just guessing.
+    if (!name) return;
+    // Only ever reached mid-session (this listener can't fire before the
+    // page has loaded once), so 'game' is always safe here - unlike the
+    // one-time initial-load bootstrap below, `state` already holds
+    // whatever game was in progress before the user navigated away from it.
+    if (name === 'history') renderHistoryScreen(); // don't show stale data on a back/forward return to Games
+    applyScreen(name);
+  });
 
   var aiInsightToggleEl = document.getElementById('ai-insight-toggle');
   var aiInsightToggleInputEl = document.getElementById('ai-insight-toggle-input');
@@ -1830,10 +1880,17 @@
   }
 
   // A ?cwn=<encoded position> URL (see shareCurrentPosition) loads straight
-  // into that position instead of the normal setup screen. Falls back to
-  // normal setup on any decode failure - a malformed/tampered link should
-  // never leave the page stuck instead of just landing on setup.
+  // into that position instead of the normal setup screen - and always wins
+  // over whatever route (if any) is also in the URL's hash: a shared board
+  // link must land on the board, full stop. loadGameFromReplay() calls
+  // showScreen('game'), which overwrites the hash to #/game itself, so a
+  // combined link like index.html?cwn=...#/games still ends up showing the
+  // board with the hash normalized to reflect that, not stuck on #/games.
+  // Falls back to normal setup (and hash-based routing, below) on any
+  // decode failure - a malformed/tampered link should never leave the page
+  // stuck instead of just landing somewhere real.
   var cwnParam = new URLSearchParams(location.search).get('cwn');
+  var loadedFromCwn = false;
   if (cwnParam) {
     try {
       var sharedState = GL.decodeCwn(cwnParam);
@@ -1842,9 +1899,27 @@
       // regardless, so setup is ready and waiting for whenever "New Game" is
       // clicked later, same as any other game.
       loadGameFromReplay({ state: sharedState, boardHistory: [sharedState.board], moveList: [], startCwn: cwnParam });
+      loadedFromCwn = true;
     } catch (e) {
       console.error('Invalid ?cwn= link, falling back to normal setup.', e);
     }
+  }
+
+  // Only reached when there's no (valid) ?cwn= - a bookmarked/shared
+  // #/games or #/rules link should land there directly rather than always
+  // starting on Play. 'setup' is already the default view, so nothing to do
+  // there. 'game' has no standalone way to initialize from a hash alone -
+  // it needs ?cwn=, an actually-started game, or puzzle mode, none of which
+  // have happened yet at this exact point in a fresh page load - so a bare
+  // #/game with nothing else in the URL is left on the default setup
+  // screen rather than showing an empty, stateless board. Never writes a
+  // hash back here either way - a plain visit's URL stays clean until the
+  // player actually navigates.
+  if (!loadedFromCwn) {
+    var initialRoute = location.hash.replace(/^#\/?/, '');
+    var initialScreen = SCREEN_FOR_ROUTE[initialRoute];
+    if (initialScreen === 'history') { renderHistoryScreen(); applyScreen('history'); }
+    else if (initialScreen === 'rules') applyScreen('rules');
   }
 
   renderPlayerCountButtons();
