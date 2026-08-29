@@ -69,6 +69,31 @@
   var historyScreen = document.getElementById('history-screen');
   var rulesScreen = document.getElementById('rules-screen');
 
+  // The single place every screen transition goes through - every call site
+  // used to hand-toggle .hidden on whichever two screens it cared about,
+  // duplicated per transition. winScreen is an overlay drawn ON TOP of the
+  // game screen, not one of the swappable screens here, so it isn't in this
+  // map - showScreen() always hides it (every real transition should start
+  // from a clean, non-overlaid view); showWinScreen() is the only thing
+  // that ever reveals it, when a game actually just ended.
+  var screensByName = {
+    setup: setupScreen,
+    game: gameScreen,
+    history: historyScreen,
+    rules: rulesScreen
+  };
+
+  function showScreen(name) {
+    Object.keys(screensByName).forEach(function (key) {
+      // Guarded: older browser-test fixtures are static copies of markup
+      // from before history/rules screens existed, so they don't have every
+      // element this map lists - same reason every other optional element
+      // in this file (aiInsightToggleEl, openPuzzleBtn, etc.) is guarded.
+      if (screensByName[key]) screensByName[key].classList.toggle('hidden', key !== name);
+    });
+    if (winScreen) winScreen.classList.add('hidden');
+  }
+
   var aiInsightToggleEl = document.getElementById('ai-insight-toggle');
   var aiInsightToggleInputEl = document.getElementById('ai-insight-toggle-input');
 
@@ -1385,9 +1410,7 @@
     // Screen transition happens before anything else below that could throw -
     // if it does, the player still reaches a playable board instead of
     // getting stuck on the setup screen.
-    winScreen.classList.add('hidden');
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
+    showScreen('game');
     // Every other AI turn is kicked off reactively, from inside commitMove()
     // after a preceding move - but the very first turn of a new game has no
     // preceding move to react to. Without this, an AI seated at seat 0 would
@@ -1398,9 +1421,7 @@
 
   function backToSetup() {
     resetAnimationState();
-    winScreen.classList.add('hidden');
-    gameScreen.classList.add('hidden');
-    setupScreen.classList.remove('hidden');
+    showScreen('setup');
   }
 
   // ---------- Local game history (T7) ----------
@@ -1560,24 +1581,20 @@
 
   function openHistory() {
     renderHistoryScreen();
-    setupScreen.classList.add('hidden');
-    historyScreen.classList.remove('hidden');
+    showScreen('history');
   }
 
   function closeHistory() {
-    historyScreen.classList.add('hidden');
-    setupScreen.classList.remove('hidden');
+    showScreen('setup');
   }
 
   // ---------- Rules (T9) ----------
   function openRules() {
-    setupScreen.classList.add('hidden');
-    rulesScreen.classList.remove('hidden');
+    showScreen('rules');
   }
 
   function closeRules() {
-    rulesScreen.classList.add('hidden');
-    setupScreen.classList.remove('hidden');
+    showScreen('setup');
   }
 
   // ---------- Daily puzzle (T10) ----------
@@ -1635,8 +1652,7 @@
       puzzleFeedbackEl.textContent = '';
       puzzleFeedbackEl.classList.remove('hidden');
     }
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
+    showScreen('game');
   }
 
   function attemptPuzzleMove(r, c, cellEl) {
@@ -1751,9 +1767,7 @@
     buildBoardDom(state.rows, state.cols);
     renderPlayersStrip();
     renderHistoryFrame();
-    winScreen.classList.add('hidden');
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
+    showScreen('game');
     maybePlayAiTurn(gameEpoch);
   }
 
