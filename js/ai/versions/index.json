@@ -2,25 +2,31 @@
   {
     "iteration": 3,
     "file": "iter3.json",
-    "elo": 1000,
+    "elo": 0,
     "winRateVsRandom": 0.9
   },
   {
     "iteration": 5,
     "file": "iter5.json",
-    "elo": 1263,
+    "elo": 0,
     "winRateVsRandom": 0.95
   },
   {
     "iteration": 7,
     "file": "iter7.json",
-    "elo": 1394,
+    "elo": 0,
     "winRateVsRandom": 0.99
   },
   {
     "iteration": 11,
     "file": "iter11.json",
-    "elo": 1472,
+    "elo": 0,
     "winRateVsRandom": 1.0
+  },
+  {
+    "iteration": 29,
+    "file": "iter29.json",
+    "elo": 90,
+    "winRateVsRandom": 0.98
   }
 ]
