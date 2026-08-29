@@ -397,6 +397,13 @@ body {
   cursor: pointer;
 }
 
+.elo-reset-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
 /* ---------- Game screen ---------- */
 
 #game-screen {

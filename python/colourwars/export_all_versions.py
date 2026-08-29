@@ -27,6 +27,8 @@ from colourwars.export_weights import (
     _read_training_log,
     compute_promoted_elo_chain,
     export_weights,
+    find_elo_chain_reset_iteration,
+    is_measured_on_fixed_harness,
 )
 from colourwars.network import ColourWarsNet
 
@@ -45,6 +47,7 @@ def main():
         return
 
     elo_chain = compute_promoted_elo_chain(args.training_log)
+    reset_iteration = find_elo_chain_reset_iteration(args.training_log)
     os.makedirs(args.out_dir, exist_ok=True)
 
     index = []
@@ -73,13 +76,21 @@ def main():
             "winRateVsRandom": record.get("win_rate_vs_random"),
             # See derive_version_info in export_weights.py for what this means
             # and why it isn't shown as an equally-trustworthy Elo when false.
-            "measuredOnFixedHarness": "win_rate_vs_best_draws" in record,
+            "measuredOnFixedHarness": is_measured_on_fixed_harness(record),
+            # True if this iteration predates the most recent elo_chain_reset -
+            # its Elo above is 0 only because compute_promoted_elo_chain drops
+            # pre-reset records from the chain, not because it was actually
+            # average-strength; ui.js shows this as "not comparable" instead
+            # of a numeric Elo so it doesn't look like real signal.
+            "preReset": reset_iteration is not None and iteration < reset_iteration,
         })
 
     index_path = os.path.join(args.out_dir, "index.json")
     with open(index_path, "w") as f:
         json.dump(index, f, indent=2)
     print(f"Wrote {index_path} ({len(index)} versions)")
+    if reset_iteration is not None:
+        print(f"Elo chain was reset at iteration {reset_iteration}; iterations before that are marked preReset.")
 
 
 if __name__ == "__main__":

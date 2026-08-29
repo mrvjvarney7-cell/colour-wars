@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=48">
+<link rel="stylesheet" href="style.css?v=49">
 </head>
 <body>
 
@@ -38,6 +38,11 @@
           <input type="checkbox" id="ai-insight-toggle-input" checked>
           Show AI thinking status, win chance &amp; considered moves
         </label>
+        <!-- Only shown once we know an elo_chain_reset actually happened
+             (see window.AI_VERSION.eloChainResetIteration) - explains why
+             the Elo next to some AI opponents jumps or reads "not
+             comparable" instead of being one continuous number. -->
+        <p class="elo-reset-note hidden" id="elo-reset-note"></p>
       </div>
 
       <div class="field">
@@ -191,11 +196,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=48"></script>
-  <script src="js/ai/encode.js?v=48"></script>
-  <script src="js/ai/network.js?v=48"></script>
-  <script src="js/ai/mcts.js?v=48"></script>
-  <script src="js/ai/weights.js?v=48"></script>
-  <script src="js/ui.js?v=48"></script>
+  <script src="js/gameLogic.js?v=49"></script>
+  <script src="js/ai/encode.js?v=49"></script>
+  <script src="js/ai/network.js?v=49"></script>
+  <script src="js/ai/mcts.js?v=49"></script>
+  <script src="js/ai/weights.js?v=49"></script>
+  <script src="js/ui.js?v=49"></script>
 </body>
 </html>

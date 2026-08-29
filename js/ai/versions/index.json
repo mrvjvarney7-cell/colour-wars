@@ -4,48 +4,55 @@
     "file": "iter3.json",
     "elo": 0,
     "winRateVsRandom": 0.9,
-    "measuredOnFixedHarness": false
+    "measuredOnFixedHarness": false,
+    "preReset": true
   },
   {
     "iteration": 5,
     "file": "iter5.json",
     "elo": 0,
     "winRateVsRandom": 0.95,
-    "measuredOnFixedHarness": false
+    "measuredOnFixedHarness": false,
+    "preReset": true
   },
   {
     "iteration": 7,
     "file": "iter7.json",
     "elo": 0,
     "winRateVsRandom": 0.99,
-    "measuredOnFixedHarness": false
+    "measuredOnFixedHarness": false,
+    "preReset": true
   },
   {
     "iteration": 11,
     "file": "iter11.json",
     "elo": 0,
     "winRateVsRandom": 1.0,
-    "measuredOnFixedHarness": false
+    "measuredOnFixedHarness": false,
+    "preReset": true
   },
   {
     "iteration": 29,
     "file": "iter29.json",
     "elo": 90,
     "winRateVsRandom": 0.98,
-    "measuredOnFixedHarness": false
+    "measuredOnFixedHarness": true,
+    "preReset": false
   },
   {
     "iteration": 30,
     "file": "iter30.json",
     "elo": 147,
     "winRateVsRandom": 0.98,
-    "measuredOnFixedHarness": false
+    "measuredOnFixedHarness": true,
+    "preReset": false
   },
   {
     "iteration": 31,
     "file": "iter31.json",
     "elo": 340,
     "winRateVsRandom": 0.97,
-    "measuredOnFixedHarness": false
+    "measuredOnFixedHarness": true,
+    "preReset": false
   }
 ]

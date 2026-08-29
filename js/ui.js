@@ -174,7 +174,7 @@
         if (!(v.iteration in versionInfoByIteration)) {
           versionInfoByIteration[v.iteration] = {
             iteration: v.iteration, elo: v.elo, winRateVsRandom: v.winRateVsRandom,
-            measuredOnFixedHarness: v.measuredOnFixedHarness, promoted: true
+            measuredOnFixedHarness: v.measuredOnFixedHarness, preReset: v.preReset, promoted: true
           };
         }
       });
@@ -216,6 +216,12 @@
   // as each other - both mean "don't trust this Elo without a mark".
   function formatEloForDisplay(v) {
     if (typeof v.elo !== 'number') return '';
+    // preReset: this iteration was promoted before the 2026-08-29 Elo reset
+    // (see the "Elo was reset" note below the version picker) - its number
+    // here is 0 only because the old chain was discarded, not because it
+    // was actually average-strength, so show that plainly instead of a
+    // number that looks like real signal.
+    if (v.preReset === true) return ' · Elo: pre-reset (not comparable)';
     return v.measuredOnFixedHarness === true
       ? (' · Elo ' + Math.round(v.elo))
       : (' · Elo ~' + Math.round(v.elo) + ' (provisional)');
@@ -225,8 +231,22 @@
     return setup.players.slice(0, setup.numPlayers).some(function (p) { return p.isAI; });
   }
 
+  var eloResetNoteEl = document.getElementById('elo-reset-note');
+
   function updateAiInsightToggleVisibility() {
-    if (aiInsightToggleEl) aiInsightToggleEl.classList.toggle('hidden', !anyAiSeatsInPlay());
+    var show = anyAiSeatsInPlay();
+    if (aiInsightToggleEl) aiInsightToggleEl.classList.toggle('hidden', !show);
+    if (eloResetNoteEl) {
+      var resetIteration = window.AI_VERSION && window.AI_VERSION.eloChainResetIteration;
+      if (show && resetIteration != null) {
+        eloResetNoteEl.textContent = 'Elo was reset at iteration ' + resetIteration +
+          ' after fixing a broken evaluation system - older iterations show "not comparable" ' +
+          'instead of an Elo on the same scale as newer ones.';
+        eloResetNoteEl.classList.remove('hidden');
+      } else {
+        eloResetNoteEl.classList.add('hidden');
+      }
+    }
   }
 
   // Options for one player's version <select>: "Latest" (the eagerly-loaded
