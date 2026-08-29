@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
      no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
      browsers, especially mobile ones, can hold a stale copy well past a
@@ -11,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=46">
+<link rel="stylesheet" href="style.css?v=50">
 </head>
 <body>
 
@@ -35,8 +36,13 @@
         <div id="player-list" class="player-list"></div>
         <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
           <input type="checkbox" id="ai-insight-toggle-input" checked>
-          Show AI's win chance &amp; considered moves
+          Show AI thinking status, win chance &amp; considered moves
         </label>
+        <!-- Only shown once we know an elo_chain_reset actually happened
+             (see window.AI_VERSION.eloChainResetIteration) - explains why
+             the Elo next to some AI opponents jumps or reads "not
+             comparable" instead of being one continuous number. -->
+        <p class="elo-reset-note hidden" id="elo-reset-note"></p>
       </div>
 
       <div class="field">
@@ -53,8 +59,11 @@
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <button id="open-history-btn" class="secondary-btn" type="button">Game History</button>
       <button id="open-rules-btn" class="secondary-btn" type="button">How to Play</button>
-      <!-- Lets us confirm which build a device is actually running, since mobile
-           browsers cache aggressively. Bump alongside the ?v= cache buster. -->
+      <button id="open-puzzle-btn" class="secondary-btn hidden" type="button">Daily Puzzle</button>
+      <!-- Version label, not tied to the ?v= cache-buster number (that still
+           increments on every asset change; this only changes on an actual
+           versioned release). Also lets us confirm which build a device is
+           actually running, since mobile browsers cache aggressively. -->
       <p class="build-tag">ColourWarsBeta1.0</p>
     </div>
   </section>
@@ -133,8 +142,12 @@
               AI is thinking&hellip;
             </span>
             <span id="ai-insight" class="ai-insight hidden"></span>
+            <!-- Daily puzzle (T10) feedback - "find the winning move" prompt
+                 and correct/incorrect result. Only shown in puzzle mode. -->
+            <span id="puzzle-feedback" class="ai-insight hidden"></span>
           </div>
           <button id="share-btn" class="icon-btn" aria-label="Copy a link to this position" title="Share this position">Share</button>
+          <button id="home-btn" class="icon-btn" aria-label="Back to home" title="Back to home">Home</button>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
         </header>
 
@@ -178,23 +191,18 @@
     <div class="win-card">
       <div class="win-dot" id="win-dot"></div>
       <h2 id="win-title">Player 1 wins!</h2>
+      <button id="review-game-btn" class="secondary-btn" type="button">Review Game</button>
       <button id="play-again-btn" class="primary-btn">New Game</button>
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=46"></script>
-  <script src="js/ai/encode.js?v=46"></script>
-  <script src="js/ai/network.js?v=46"></script>
-  <script src="js/ai/mcts.js?v=46"></script>
-  <script src="js/ai/weights.js?v=46"></script>
-  <script src="js/ui.js?v=46"></script>
-
-  <!-- TEST-ONLY automation harness, appended for this run - not part of the
-       shipped page. Covers T9 (rules page): hidden by default, opening it
-       hides setup and shows the rules content (which actually explains the
-       non-standard 3-dot opening and fixed critical mass), and Back returns
-       cleanly to setup. -->
-  <script>
+  <script src="js/gameLogic.js?v=50"></script>
+  <script src="js/ai/encode.js?v=50"></script>
+  <script src="js/ai/network.js?v=50"></script>
+  <script src="js/ai/mcts.js?v=50"></script>
+  <script src="js/ai/weights.js?v=50"></script>
+  <script src="js/ui.js?v=50"></script>
+<script>
     (function () {
       'use strict';
       var errors = [];
