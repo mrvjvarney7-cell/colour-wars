@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
      no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
      browsers, especially mobile ones, can hold a stale copy well past a
@@ -53,54 +52,9 @@
 
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <button id="open-history-btn" class="secondary-btn" type="button">Game History</button>
-      <button id="open-rules-btn" class="secondary-btn" type="button">How to Play</button>
-      <button id="open-puzzle-btn" class="secondary-btn hidden" type="button">Daily Puzzle</button>
-      <!-- Version label, not tied to the ?v= cache-buster number (that still
-           increments on every asset change; this only changes on an actual
-           versioned release). Also lets us confirm which build a device is
-           actually running, since mobile browsers cache aggressively. -->
+      <!-- Lets us confirm which build a device is actually running, since mobile
+           browsers cache aggressively. Bump alongside the ?v= cache buster. -->
       <p class="build-tag">ColourWarsBeta1.0</p>
-    </div>
-  </section>
-
-  <!-- Rules (T9) - the 3-dot opening and fixed critical mass are both
-       non-standard compared to classic Chain Reaction, and undiscoverable
-       without this. -->
-  <section id="rules-screen" class="screen hidden">
-    <div class="setup-card rules-card">
-      <h1 class="title">How to Play</h1>
-
-      <div class="rules-section">
-        <h2>The board</h2>
-        <p>7&times;7 grid. Players take turns placing dots on cells. Colours &amp; opponents are chosen on the setup screen - any mix of human and AI seats.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Opening move</h2>
-        <p>Your very <b>first</b> move of the game may target any empty cell (or one you already own) and places <b>3 dots</b> at once, instead of the usual one. This is what gets games moving quickly on a 7&times;7 board - without it, the opening phase would take far longer to reach any real contact between players.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Later moves</h2>
-        <p>Every move after your opening must target a cell <b>you already own</b>, placing a single dot. You cannot place on an empty cell or an opponent's cell directly - the only way to gain new territory is by exploding into it.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Critical mass &amp; explosions</h2>
-        <p>Every cell explodes once it reaches <b>4 dots</b> - corners, edges and interior cells alike, regardless of how many neighbours they actually have. An exploding cell loses all 4 dots and sends one dot to each orthogonally adjacent cell (up to 4: up/down/left/right), capturing that cell for the exploding player's colour. A corner cell only has 2 neighbours and an edge cell only 3 - dots that would go to a neighbour that doesn't exist are simply lost.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Chain reactions</h2>
-        <p>If a cell gains a dot and that pushes it to 4 or more, it explodes too - on the very next wave, simultaneously with any other cell that also just reached critical mass. This can cascade through many cells in a single turn, flipping large sections of the board to one colour. The chain preview (hover a legal move on desktop, long-press on mobile) shows exactly which cells a candidate move would detonate before you commit to it.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Elimination &amp; winning</h2>
-        <p>Once every player has made their opening move, any player reduced to zero cells is eliminated. The last player with any cells left wins. In a 3-4 player game, elimination can happen well before every other player has had many turns - a single well-placed chain can wipe someone out early.</p>
-      </div>
-
-      <button id="back-from-rules-btn" class="primary-btn" type="button">Back</button>
     </div>
   </section>
 
@@ -137,9 +91,6 @@
               AI is thinking&hellip;
             </span>
             <span id="ai-insight" class="ai-insight hidden"></span>
-            <!-- Daily puzzle (T10) feedback - "find the winning move" prompt
-                 and correct/incorrect result. Only shown in puzzle mode. -->
-            <span id="puzzle-feedback" class="ai-insight hidden"></span>
           </div>
           <button id="share-btn" class="icon-btn" aria-label="Copy a link to this position" title="Share this position">Share</button>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
@@ -185,7 +136,6 @@
     <div class="win-card">
       <div class="win-dot" id="win-dot"></div>
       <h2 id="win-title">Player 1 wins!</h2>
-      <button id="review-game-btn" class="secondary-btn" type="button">Review Game</button>
       <button id="play-again-btn" class="primary-btn">New Game</button>
     </div>
   </section>
@@ -196,5 +146,114 @@
   <script src="js/ai/mcts.js?v=46"></script>
   <script src="js/ai/weights.js?v=46"></script>
   <script src="js/ui.js?v=46"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers T7 (local history): a game that finishes for
+       real gets recorded to localStorage with the right summary fields, the
+       history screen's stats reflect it, and clicking the row replays the
+       exact same game via T6's replay path. The page is loaded with a
+       hand-crafted ?cwn= position one explosion away from eliminating
+       player 2, so a real game-over is reached with a single click instead
+       of playing out a full game move by move. -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      function afterTick(fn) { setTimeout(fn, 100); }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+
+        localStorage.removeItem('colourwars-history');
+
+        // Loaded via ?cwn= (see index.html query string below) - board has
+        // player 0 at (0,1) with 3 dots (one placement from exploding) and
+        // player 1 with exactly one cell, (0,0), 1 dot. Exploding (0,1)
+        // captures (0,0), eliminating player 1 - a real, complete game.
+        if (document.getElementById('game-screen').classList.contains('hidden')) {
+          return fail('expected the ?cwn= link to load straight into the game screen');
+        }
+
+        var targetCell = document.querySelector('.cell[data-row="0"][data-col="1"]');
+        if (targetCell) targetCell.click();
+
+        // The single explosion wave still needs to animate (FLIGHT_MS 220 +
+        // WAVE_PAUSE_MS 90, plus a little slack) before commitMove's .then()
+        // actually updates state/records the finished game.
+        setTimeout(function () {
+          var winVisible = !document.getElementById('win-screen').classList.contains('hidden');
+          var stored = JSON.parse(localStorage.getItem('colourwars-history') || '[]');
+          var recordCheck = { ok: true };
+          if (!winVisible) {
+            recordCheck = { ok: false, reason: 'expected the win screen after eliminating player 2' };
+          } else if (stored.length !== 1) {
+            recordCheck = { ok: false, reason: 'expected exactly 1 stored history entry, got ' + stored.length };
+          } else {
+            var entry = stored[0];
+            if (entry.winnerIndex !== 0) recordCheck = { ok: false, reason: 'expected player 0 (index 0) to be recorded as winner, got ' + entry.winnerIndex };
+            else if (entry.numPlayers !== 2) recordCheck = { ok: false, reason: 'expected numPlayers 2, got ' + entry.numPlayers };
+            else if (entry.moves.length !== 1 || entry.moves[0] !== 'b7') recordCheck = { ok: false, reason: 'expected a single recorded move "b7", got ' + JSON.stringify(entry.moves) };
+            else if (typeof entry.startCwn !== 'string') recordCheck = { ok: false, reason: 'expected a startCwn string for replay' };
+          }
+
+          document.getElementById('play-again-btn').click(); // win screen's "New Game" -> back to setup
+          afterTick(function () {
+            document.getElementById('open-history-btn').click();
+            afterTick(function () {
+              var rows = document.querySelectorAll('.history-row');
+              var statsText = document.getElementById('history-stats-panel').textContent;
+              var screenCheck = { ok: true };
+              if (rows.length !== 1) {
+                screenCheck = { ok: false, reason: 'expected 1 history row, got ' + rows.length };
+              } else if (statsText.indexOf('Games played: 1') === -1) {
+                screenCheck = { ok: false, reason: 'stats panel missing "Games played: 1": ' + statsText };
+              } else if (statsText.indexOf('longest chain 1') !== -1 === false && rows[0].textContent.indexOf('longest chain 1') === -1) {
+                screenCheck = { ok: false, reason: 'history row missing "longest chain 1": ' + rows[0].textContent };
+              }
+
+              if (rows.length !== 1) {
+                return report({ ok: false, errors: errors, recordCheck: recordCheck, screenCheck: screenCheck });
+              }
+
+              rows[0].click(); // replay
+              afterTick(function () {
+                // Replaying a finished game shows the final board directly
+                // (game-screen), not the win overlay again - lets you
+                // review a completed game rather than re-triggering a
+                // celebratory popup. The eliminated player's chip is how a
+                // replay actually shows the outcome.
+                var gameScreenVisible = !document.getElementById('game-screen').classList.contains('hidden');
+                var eliminatedChip = document.querySelector('.player-chip.eliminated');
+                var replayCheck = { ok: true };
+                if (!gameScreenVisible) {
+                  replayCheck = { ok: false, reason: 'expected the replayed game to show the game screen (final board), not stay hidden' };
+                } else if (!eliminatedChip) {
+                  replayCheck = { ok: false, reason: 'expected player 2 to show as eliminated in the replayed game' };
+                }
+
+                report({
+                  ok: errors.length === 0 && recordCheck.ok && screenCheck.ok && replayCheck.ok,
+                  errors: errors,
+                  recordCheck: recordCheck,
+                  screenCheck: screenCheck,
+                  replayCheck: replayCheck
+                });
+              });
+            });
+          });
+        }, 600);
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
 </body>
 </html>

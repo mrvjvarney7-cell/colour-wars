@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Colour Wars</title>
+<link rel="stylesheet" href="style.css?v=46">
+</head>
+<body>
+
+    <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-label="Switch to light theme">Light mode</button>
+
+    <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours &amp; opponents</div>
+        <div id="player-list" class="player-list"></div>
+        <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
+          <input type="checkbox" id="ai-insight-toggle-input" checked>
+          Show AI's win chance &amp; considered moves
+        </label>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Analysis</div>
+                <label class="ai-insight-toggle" id="policy-heatmap-toggle">
+          <input type="checkbox" id="policy-heatmap-toggle-input">
+          Show policy heatmap
+        </label>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+            <p class="build-tag">ColourWarsBeta1.0</p>
+    </div>
+  </section>
+
+    <section id="game-screen" class="screen hidden">
+    <div class="game-layout">
+      <div class="game-main">
+        <header class="turn-bar" id="turn-bar">
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot" id="turn-dot"></span>
+            <span id="turn-label">Player 1's turn</span>
+            <span id="ai-thinking" class="ai-thinking hidden">
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              AI is thinking&hellip;
+            </span>
+            <span id="ai-insight" class="ai-insight hidden"></span>
+          </div>
+          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+        </header>
+
+        <div class="players-strip" id="players-strip"></div>
+        <div class="stats-panel" id="stats-panel"></div>
+
+        <div class="board-row">
+                    <div class="eval-bar hidden" id="eval-bar" aria-hidden="true">
+            <span class="eval-bar-label" id="eval-bar-label"></span>
+            <div class="eval-bar-track">
+              <div class="eval-bar-fill" id="eval-bar-fill"></div>
+            </div>
+          </div>
+          <div class="board-wrap">
+            <div class="board" id="board"></div>
+            <div class="fx-layer" id="fx-layer"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="move-history-panel" id="move-history-panel">
+        <div class="move-history-header">Moves</div>
+        <div class="move-history-list" id="move-history-list"></div>
+      </aside>
+    </div>
+  </section>
+
+    <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js?v=46"></script>
+  <script src="js/ai/encode.js?v=46"></script>
+  <script src="js/ai/network.js?v=46"></script>
+  <script src="js/ai/mcts.js?v=46"></script>
+  <script src="js/ai/weights.js?v=46"></script>
+  <script src="js/ui.js?v=46"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers the eval bar (T1): hidden before a game starts,
+       shown always once one does (not gated behind any toggle, unlike the
+       heatmap), fill height/label reflect a valid 0-100% win probability for
+       the side to move, its colour matches the CURRENT mover and updates
+       when the turn passes, and it hides while browsing move history. -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      function readBar() {
+        var el = document.getElementById('eval-bar');
+        var fill = document.getElementById('eval-bar-fill');
+        var label = document.getElementById('eval-bar-label');
+        return {
+          hidden: el.classList.contains('hidden'),
+          heightPct: parseFloat(fill.style.height),
+          labelText: label.textContent,
+          color: fill.style.getPropertyValue('--eval-bar-color')
+        };
+      }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+
+        var beforeStart = readBar();
+        var hiddenBeforeStartCheck = { ok: beforeStart.hidden === true };
+        if (!hiddenBeforeStartCheck.ok) hiddenBeforeStartCheck.reason = 'expected eval bar hidden before Start Game, got ' + JSON.stringify(beforeStart);
+
+        document.getElementById('start-game-btn').click(); // default 2p human-vs-human
+
+        setTimeout(function () {
+          var p1 = readBar();
+          var p1Check = { ok: true };
+          if (p1.hidden) {
+            p1Check = { ok: false, reason: 'expected eval bar visible once a game is live' };
+          } else if (isNaN(p1.heightPct) || p1.heightPct < 0 || p1.heightPct > 100) {
+            p1Check = { ok: false, reason: 'fill height out of [0,100] range: ' + p1.heightPct };
+          } else if (!/^\d+%$/.test(p1.labelText)) {
+            p1Check = { ok: false, reason: 'expected a plain "N%" label, got "' + p1.labelText + '"' };
+          } else if (Math.round(p1.heightPct) + '%' !== p1.labelText) {
+            p1Check = { ok: false, reason: 'label (' + p1.labelText + ') should match fill height (' + p1.heightPct + '%)' };
+          } else if (!p1.color) {
+            p1Check = { ok: false, reason: 'expected --eval-bar-color to be set to the mover\'s colour' };
+          }
+
+          // P1 opens - turn passes to P2, whose colour should now drive the bar.
+          document.querySelector('.cell[data-row="3"][data-col="3"]').click();
+
+          setTimeout(function () {
+            var p2 = readBar();
+            var colorChangedCheck = { ok: p2.color !== p1.color };
+            if (!colorChangedCheck.ok) colorChangedCheck.reason = 'expected --eval-bar-color to change once the mover changed, both were ' + p1.color;
+
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+            var duringBrowseCheck = { ok: readBar().hidden === true };
+            if (!duringBrowseCheck.ok) duringBrowseCheck.reason = 'expected eval bar hidden while browsing history, got ' + JSON.stringify(readBar());
+
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })); // back to live
+            var backToLiveCheck = { ok: readBar().hidden === false };
+            if (!backToLiveCheck.ok) backToLiveCheck.reason = 'expected eval bar to reappear back at the live position';
+
+            report({
+              ok: errors.length === 0 && hiddenBeforeStartCheck.ok && p1Check.ok && colorChangedCheck.ok && duringBrowseCheck.ok && backToLiveCheck.ok,
+              errors: errors,
+              hiddenBeforeStartCheck: hiddenBeforeStartCheck,
+              p1Check: p1Check,
+              colorChangedCheck: colorChangedCheck,
+              duringBrowseCheck: duringBrowseCheck,
+              backToLiveCheck: backToLiveCheck
+            });
+          }, 100);
+        }, 100);
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
      no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
      browsers, especially mobile ones, can hold a stale copy well past a
@@ -55,10 +54,8 @@
       <button id="open-history-btn" class="secondary-btn" type="button">Game History</button>
       <button id="open-rules-btn" class="secondary-btn" type="button">How to Play</button>
       <button id="open-puzzle-btn" class="secondary-btn hidden" type="button">Daily Puzzle</button>
-      <!-- Version label, not tied to the ?v= cache-buster number (that still
-           increments on every asset change; this only changes on an actual
-           versioned release). Also lets us confirm which build a device is
-           actually running, since mobile browsers cache aggressively. -->
+      <!-- Lets us confirm which build a device is actually running, since mobile
+           browsers cache aggressively. Bump alongside the ?v= cache buster. -->
       <p class="build-tag">ColourWarsBeta1.0</p>
     </div>
   </section>
@@ -196,5 +193,85 @@
   <script src="js/ai/mcts.js?v=46"></script>
   <script src="js/ai/weights.js?v=46"></script>
   <script src="js/ui.js?v=46"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers T10 (daily puzzle): the button appears once
+       js/puzzles.json has content, opening it decodes the puzzle's CWN onto
+       the board with a "find the winning move" prompt, a wrong guess gives
+       "try again" feedback without mutating the board, and the actual
+       solution move is accepted, animates, and reports success. Run with
+       --allow-file-access-from-files (fetches js/puzzles.json). -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      var pollCount = 0;
+      function waitForButton() {
+        pollCount++;
+        var btn = document.getElementById('open-puzzle-btn');
+        if (btn && !btn.classList.contains('hidden')) {
+          afterButtonVisible(btn);
+        } else if (pollCount >= 50) {
+          fail('Daily Puzzle button never appeared (js/puzzles.json fetch may have failed)');
+        } else {
+          setTimeout(waitForButton, 100);
+        }
+      }
+
+      function afterButtonVisible(btn) {
+        try {
+          btn.click();
+
+          var gameScreenVisible = !document.getElementById('game-screen').classList.contains('hidden');
+          var promptText = document.getElementById('turn-label').textContent;
+          var openCheck = { ok: true };
+          if (!gameScreenVisible) {
+            openCheck = { ok: false, reason: 'expected the game screen to show after opening the puzzle' };
+          } else if (promptText.toLowerCase().indexOf('winning move') === -1) {
+            openCheck = { ok: false, reason: 'expected a "find the winning move" style prompt, got "' + promptText + '"' };
+          }
+
+          var ownedBefore = document.querySelectorAll('.cell.owned').length;
+
+          // Wrong guess: (6,6) is a LEGAL move for player 0 (their other
+          // owned cell) but not the solution - should give feedback and NOT
+          // mutate the board (still just an attempt, no real move applied).
+          document.querySelector('.cell[data-row="6"][data-col="6"]').click();
+          var wrongFeedback = document.getElementById('puzzle-feedback').textContent;
+          var wrongCheck = { ok: true };
+          if (wrongFeedback.toLowerCase().indexOf('try again') === -1) {
+            wrongCheck = { ok: false, reason: 'expected "try again" feedback for a wrong guess, got "' + wrongFeedback + '"' };
+          } else if (document.querySelectorAll('.cell.owned').length !== ownedBefore) {
+            wrongCheck = { ok: false, reason: 'a wrong guess must not change the board' };
+          }
+
+          // Correct guess: (0,1) = b7, the puzzle's actual solution.
+          document.querySelector('.cell[data-row="0"][data-col="1"]').click();
+
+          setTimeout(function () {
+            var solvedFeedback = document.getElementById('puzzle-feedback').textContent;
+            var solvedCheck = { ok: solvedFeedback.toLowerCase().indexOf('solved') !== -1 };
+            if (!solvedCheck.ok) solvedCheck.reason = 'expected "Solved!" feedback after the real solution move, got "' + solvedFeedback + '"';
+
+            report({
+              ok: errors.length === 0 && openCheck.ok && wrongCheck.ok && solvedCheck.ok,
+              errors: errors, openCheck: openCheck, wrongCheck: wrongCheck, solvedCheck: solvedCheck
+            });
+          }, 600);
+        } catch (e) {
+          fail('exception in afterButtonVisible: ' + e.message);
+        }
+      }
+
+      waitForButton();
+    })();
+  </script>
 </body>
 </html>

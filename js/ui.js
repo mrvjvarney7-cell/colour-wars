@@ -66,9 +66,9 @@
   var setupScreen = document.getElementById('setup-screen');
   var gameScreen = document.getElementById('game-screen');
   var winScreen = document.getElementById('win-screen');
+  var historyScreen = document.getElementById('history-screen');
+  var rulesScreen = document.getElementById('rules-screen');
 
-  var aiVersionSelectEl = document.getElementById('ai-version-select');
-  var aiVersionTagIngameEl = document.getElementById('ai-version-tag-ingame');
   var aiInsightToggleEl = document.getElementById('ai-insight-toggle');
   var aiInsightToggleInputEl = document.getElementById('ai-insight-toggle-input');
 
@@ -79,6 +79,19 @@
   function showAiInsight() {
     return !!(aiInsightToggleInputEl && aiInsightToggleInputEl.checked);
   }
+
+  var policyHeatmapToggleInputEl = document.getElementById('policy-heatmap-toggle-input');
+  function showPolicyHeatmap() {
+    return !!(policyHeatmapToggleInputEl && policyHeatmapToggleInputEl.checked);
+  }
+  if (policyHeatmapToggleInputEl) {
+    policyHeatmapToggleInputEl.addEventListener('change', renderAnalysis);
+  }
+
+  var evalBarEl = document.getElementById('eval-bar');
+  var evalBarFillEl = document.getElementById('eval-bar-fill');
+  var evalBarLabelEl = document.getElementById('eval-bar-label');
+
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
   var playerListEl = document.getElementById('player-list');
   var startGameBtn = document.getElementById('start-game-btn');
@@ -91,10 +104,25 @@
   var fxLayerEl = document.getElementById('fx-layer');
   var boardWrapEl = document.querySelector('.board-wrap');
   var newGameBtn = document.getElementById('new-game-btn');
+  var shareBtn = document.getElementById('share-btn');
+  var exportGameBtn = document.getElementById('export-game-btn');
+  var importGameBtn = document.getElementById('import-game-btn');
 
   var winDotEl = document.getElementById('win-dot');
   var winTitleEl = document.getElementById('win-title');
   var playAgainBtn = document.getElementById('play-again-btn');
+
+  var openHistoryBtn = document.getElementById('open-history-btn');
+  var backFromHistoryBtn = document.getElementById('back-from-history-btn');
+  var clearHistoryBtn = document.getElementById('clear-history-btn');
+  var historyListEl = document.getElementById('history-list');
+  var historyStatsPanelEl = document.getElementById('history-stats-panel');
+
+  var openRulesBtn = document.getElementById('open-rules-btn');
+  var backFromRulesBtn = document.getElementById('back-from-rules-btn');
+
+  var openPuzzleBtn = document.getElementById('open-puzzle-btn');
+  var puzzleFeedbackEl = document.getElementById('puzzle-feedback');
 
   var moveHistoryListEl = document.getElementById('move-history-list');
 
@@ -102,30 +130,52 @@
   var setup = {
     numPlayers: 2,
     players: [
-      { name: 'Player 1', color: PALETTE[0].hex, isAI: false },
-      { name: 'Player 2', color: PALETTE[1].hex, isAI: false },
-      { name: 'Player 3', color: PALETTE[2].hex, isAI: false },
-      { name: 'Player 4', color: PALETTE[3].hex, isAI: false }
+      // aiVersionIteration: null means "whatever the default/latest build
+      // ships" - the zero-fetch, zero-latency path. Set only when a player's
+      // row has its AI version dropdown explicitly changed (see
+      // renderPlayerList) - each AI seat can be a different checkpoint.
+      { name: 'Player 1', color: PALETTE[0].hex, isAI: false, aiVersionIteration: null },
+      { name: 'Player 2', color: PALETTE[1].hex, isAI: false, aiVersionIteration: null },
+      { name: 'Player 3', color: PALETTE[2].hex, isAI: false, aiVersionIteration: null },
+      { name: 'Player 4', color: PALETTE[3].hex, isAI: false, aiVersionIteration: null }
     ]
   };
 
-  // ---------- AI version picker ----------
+  // ---------- AI version picker (per seat) ----------
   // The browser AI defaults to whatever python -m colourwars.export_weights
   // last shipped as js/ai/weights.js (window.AI_WEIGHTS / window.AI_VERSION,
   // loaded eagerly via <script> so the default is ready with zero extra
   // latency). js/ai/versions/index.json separately lists every PROMOTED
-  // iteration (python -m colourwars.export_all_versions) - picking one of
-  // those fetches its weights on demand instead of bundling every past
-  // version into the page's default load.
-  var activeAiWeights = window.AI_WEIGHTS;
-  var activeVersionInfo = window.AI_VERSION;
-  var availableVersions = []; // [{iteration, file, elo, winRateVsRandom}, ...] from index.json
+  // iteration (python -m colourwars.export_all_versions) - picking one
+  // fetches its weights on demand instead of bundling every past version
+  // into the page's default load. Each AI seat picks independently (see
+  // renderPlayerList's per-row <select>), so two AI opponents in the same
+  // game can be different checkpoints - the cache/info maps below are keyed
+  // by iteration precisely so the same version picked for two different
+  // seats (or the default one, already loaded) is never fetched twice.
+  var defaultIteration = window.AI_VERSION ? window.AI_VERSION.iteration : null;
+  var versionWeightsCache = {}; // iteration(number) -> weights object
+  var versionInfoByIteration = {}; // iteration(number) -> {iteration, elo, winRateVsRandom, measuredOnFixedHarness, promoted}
+  var availableVersions = []; // [{iteration, file, elo, winRateVsRandom, measuredOnFixedHarness}, ...] from index.json, newest first
+
+  if (defaultIteration != null) {
+    versionWeightsCache[defaultIteration] = window.AI_WEIGHTS;
+    versionInfoByIteration[defaultIteration] = window.AI_VERSION;
+  }
 
   fetch('js/ai/versions/index.json')
     .then(function (res) { return res.ok ? res.json() : []; })
     .then(function (versions) {
       availableVersions = versions.slice().sort(function (a, b) { return b.iteration - a.iteration; });
-      updateAiVersionTags();
+      availableVersions.forEach(function (v) {
+        if (!(v.iteration in versionInfoByIteration)) {
+          versionInfoByIteration[v.iteration] = {
+            iteration: v.iteration, elo: v.elo, winRateVsRandom: v.winRateVsRandom,
+            measuredOnFixedHarness: v.measuredOnFixedHarness, promoted: true
+          };
+        }
+      });
+      refreshAllPlayerVersionSelects();
     })
     .catch(function () {
       // No network / fetch blocked (e.g. some browsers restrict fetch() for
@@ -133,99 +183,146 @@
       // just nothing else to pick from.
     });
 
-  function formatAiVersionText() {
-    var v = activeVersionInfo;
-    if (!v) return 'AI version unknown';
-    var label = (v.iteration != null) ? ('AI: iteration ' + v.iteration) : ('AI: ' + v.checkpointFile);
-    if (typeof v.elo === 'number') {
-      label += ' · Elo ' + Math.round(v.elo);
-    }
-    if (typeof v.winRateVsRandom === 'number') {
-      label += ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
-    }
-    if (v.promoted) label += ' · promoted';
-    return label;
+  // Resolves to weights.js's shape ({policyLogits-net weight tree}) for
+  // `iteration`, fetching once and caching forever after - repeat calls for
+  // an iteration already loaded (including the eagerly-bundled default)
+  // resolve immediately with no network round-trip.
+  function ensureVersionWeightsLoaded(iteration) {
+    if (versionWeightsCache[iteration]) return Promise.resolve(versionWeightsCache[iteration]);
+    var entry = availableVersions.filter(function (v) { return v.iteration === iteration; })[0];
+    if (!entry) return Promise.reject(new Error('unknown AI version: iteration ' + iteration));
+    return fetch('js/ai/versions/' + entry.file)
+      .then(function (res) {
+        if (!res.ok) throw new Error('fetch failed: ' + res.status);
+        return res.json();
+      })
+      .then(function (weights) {
+        versionWeightsCache[iteration] = weights;
+        return weights;
+      });
+  }
+
+  // v.measuredOnFixedHarness (set once by python -m colourwars.export_weights,
+  // see derive_version_info there) is true only if this checkpoint's Elo/win
+  // rate came from the 2p-paired, draw-scoring eval harness. Earlier
+  // promotions were measured on a harness later found to be structurally
+  // biased (deterministic games, effectively ~9 distinct outcomes, unfinished
+  // games silently discarded rather than scored as draws) - showing their Elo
+  // as a plain fact would ship a number that isn't one. false/undefined (an
+  // older exported version.json predating this field) are treated the same
+  // as each other - both mean "don't trust this Elo without a mark".
+  function formatEloForDisplay(v) {
+    if (typeof v.elo !== 'number') return '';
+    return v.measuredOnFixedHarness === true
+      ? (' · Elo ' + Math.round(v.elo))
+      : (' · Elo ~' + Math.round(v.elo) + ' (provisional)');
   }
 
   function anyAiSeatsInPlay() {
     return setup.players.slice(0, setup.numPlayers).some(function (p) { return p.isAI; });
   }
 
-  function renderAiVersionSelect() {
-    if (!aiVersionSelectEl || availableVersions.length === 0) return;
-    var currentIteration = activeVersionInfo ? activeVersionInfo.iteration : null;
-    aiVersionSelectEl.innerHTML = '';
-    availableVersions.forEach(function (v) {
-      var opt = document.createElement('option');
-      opt.value = String(v.iteration);
-      opt.textContent = 'Iteration ' + v.iteration + ' · Elo ' + Math.round(v.elo) +
-        ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
-      if (v.iteration === currentIteration) opt.selected = true;
-      aiVersionSelectEl.appendChild(opt);
-    });
+  function updateAiInsightToggleVisibility() {
+    if (aiInsightToggleEl) aiInsightToggleEl.classList.toggle('hidden', !anyAiSeatsInPlay());
   }
 
-  // Switches the active AI to a different promoted iteration - the default
-  // (whatever AI_WEIGHTS already loaded as) is reused with no extra fetch,
-  // anything else is fetched on demand. Falls back to whatever was already
-  // active on any failure, so a network hiccup never leaves the AI unusable.
-  function selectAiVersion(iteration) {
-    if (window.AI_VERSION && window.AI_VERSION.iteration === iteration) {
-      activeAiWeights = window.AI_WEIGHTS;
-      activeVersionInfo = window.AI_VERSION;
-      updateAiVersionTags();
-      return;
+  // Options for one player's version <select>: "Latest" (the eagerly-loaded
+  // default, value="") first, then every other promoted iteration newest
+  // first. Skips a duplicate entry if the default happens to also appear in
+  // availableVersions (it always will, once index.json loads).
+  // ---------- Bot ladder (T8) ----------
+  // Same underlying data as before (one promoted checkpoint per entry) -
+  // presented as opponents with a name/avatar/rating instead of raw build
+  // artefacts ("iteration 29"), with progressive unlock: each tier opens up
+  // once a human has beaten the tier below it at least once (per T7's local
+  // history - no separate unlock-tracking storage needed). Ranked oldest
+  // (weakest) to newest (strongest) among whatever's actually been
+  // promoted, excluding the current default build (see buildVersionOptions -
+  // "Latest" is a separate, always-available dev-default entry, not part of
+  // the ladder to climb). Falls back to "Tier N" for any rank beyond the
+  // named list, so this never breaks as more iterations get promoted.
+  var BOT_LADDER = [
+    { name: 'Rookie', avatar: '🌱' },
+    { name: 'Challenger', avatar: '⚔️' },
+    { name: 'Veteran', avatar: '🛡️' },
+    { name: 'Champion', avatar: '👑' },
+    { name: 'Grandmaster', avatar: '🏆' },
+    { name: 'Legend', avatar: '⭐' }
+  ];
+
+  function botTierForRank(rank) {
+    return BOT_LADDER[rank] || { name: 'Tier ' + (rank + 1), avatar: '🤖' };
+  }
+
+  // Ladder-eligible versions (excludes the default), oldest first = rank 0.
+  function ladderVersionsAscending() {
+    return availableVersions
+      .filter(function (v) { return v.iteration !== defaultIteration; })
+      .slice()
+      .sort(function (a, b) { return a.iteration - b.iteration; });
+  }
+
+  // A bot is unlocked if it's rank 0 (always playable) or a human has beaten
+  // the PREVIOUS tier at least once - "beaten" per computeHistoryStats'
+  // per-bot win tracking (games with exactly one AI seat, that seat lost).
+  function isBotUnlocked(rank, laddder) {
+    if (rank === 0) return true;
+    var previous = laddder[rank - 1];
+    if (!previous) return true;
+    var stats = computeHistoryStats(loadGameHistory());
+    var record = stats.byBot[String(previous.iteration)];
+    return !!(record && record.wins > 0);
+  }
+
+  function buildVersionOptions() {
+    var opts = [];
+    if (defaultIteration != null) {
+      var defInfo = versionInfoByIteration[defaultIteration] || {};
+      opts.push({ value: '', label: 'Latest (iteration ' + defaultIteration + ')' + formatEloForDisplay(defInfo), disabled: false });
     }
-    var entry = availableVersions.filter(function (v) { return v.iteration === iteration; })[0];
-    if (!entry) return;
-    aiVersionSelectEl.disabled = true;
-    fetch('js/ai/versions/' + entry.file)
-      .then(function (res) {
-        if (!res.ok) throw new Error('fetch failed: ' + res.status);
-        return res.json();
-      })
-      .then(function (weights) {
-        activeAiWeights = weights;
-        activeVersionInfo = {
-          iteration: entry.iteration,
-          elo: entry.elo,
-          winRateVsRandom: entry.winRateVsRandom,
-          promoted: true
-        };
-      })
-      .catch(function (err) {
-        console.error('Could not load AI version ' + iteration + ', keeping the current one.', err);
-        renderAiVersionSelect(); // revert the dropdown to whatever's actually active
-      })
-      .then(function () {
-        aiVersionSelectEl.disabled = false;
-        updateAiVersionTags();
-      });
-  }
-
-  // Guarded the same way as the version-tag elements below: a stale cached
-  // copy of index.html from before this element existed must not crash the
-  // rest of setup (see updateAiVersionTags()'s comment for why that matters).
-  if (aiVersionSelectEl) {
-    aiVersionSelectEl.addEventListener('change', function () {
-      selectAiVersion(Number(aiVersionSelectEl.value));
+    var ladder = ladderVersionsAscending();
+    ladder.forEach(function (v, rank) {
+      var tier = botTierForRank(rank);
+      var unlocked = isBotUnlocked(rank, ladder);
+      var label;
+      if (unlocked) {
+        label = tier.avatar + ' ' + tier.name + formatEloForDisplay(v) +
+          ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+      } else {
+        var previousTier = botTierForRank(rank - 1);
+        label = '🔒 Locked - beat ' + previousTier.name + ' to unlock';
+      }
+      opts.push({ value: String(v.iteration), label: label, disabled: !unlocked });
     });
+    return opts;
   }
 
-  function updateAiVersionTags() {
-    // Guards against a stale cached copy of index.html from before these
-    // elements existed being served alongside a newer ui.js (GitHub Pages'
-    // cache-control means that skew is a real possibility, not hypothetical -
-    // it's exactly what broke Start Game entirely before this guard existed).
-    // A visitor missing the version tag is a much smaller problem than a
-    // visitor who can't place a single dot.
-    if (!aiVersionSelectEl || !aiVersionTagIngameEl) return;
-    var show = anyAiSeatsInPlay();
-    aiVersionSelectEl.classList.toggle('hidden', !show || availableVersions.length === 0);
-    renderAiVersionSelect();
-    aiVersionTagIngameEl.textContent = formatAiVersionText();
-    aiVersionTagIngameEl.classList.toggle('hidden', !show);
-    if (aiInsightToggleEl) aiInsightToggleEl.classList.toggle('hidden', !show);
+  // Re-populates every already-rendered row's version <select> in place
+  // (not a full renderPlayerList() re-render, which would rebuild the name
+  // <input> elements too and drop whatever a player is mid-typing) - used
+  // when index.json finishes loading after the setup screen is already on
+  // screen, so a row rendered before that still gets the full version list.
+  function refreshAllPlayerVersionSelects() {
+    var rows = playerListEl.querySelectorAll('.player-row');
+    for (var i = 0; i < rows.length && i < setup.numPlayers; i++) {
+      var sel = rows[i].querySelector('.player-ai-version-select');
+      if (!sel) continue;
+      var p = setup.players[i];
+      sel.innerHTML = '';
+      buildVersionOptions().forEach(function (o) {
+        var opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.label;
+        opt.disabled = o.disabled;
+        sel.appendChild(opt);
+      });
+      // A previously-picked bot that's since become re-locked (shouldn't
+      // normally happen, but a cleared history could do it) falls back to
+      // the default rather than leaving the select on a disabled option.
+      var wanted = (p.aiVersionIteration == null) ? '' : String(p.aiVersionIteration);
+      var wantedOption = Array.prototype.filter.call(sel.options, function (o) { return o.value === wanted; })[0];
+      sel.value = (wantedOption && !wantedOption.disabled) ? wanted : '';
+    }
   }
 
   function renderPlayerCountButtons() {
@@ -306,10 +403,43 @@
         });
         row.appendChild(aiToggle);
 
+        // Each AI seat picks its own opponent strength independently - this
+        // is NOT a single "AI difficulty for the whole game" control, see
+        // buildVersionOptions(). Only shown once this row is toggled to AI.
+        if (p.isAI) {
+          var verSelect = document.createElement('select');
+          verSelect.className = 'player-ai-version-select';
+          verSelect.setAttribute('aria-label', 'Player ' + (i + 1) + ' AI version');
+          buildVersionOptions().forEach(function (o) {
+            var opt = document.createElement('option');
+            opt.value = o.value;
+            opt.textContent = o.label;
+            opt.disabled = o.disabled;
+            if (!o.disabled && ((p.aiVersionIteration == null && o.value === '') ||
+                (p.aiVersionIteration != null && o.value === String(p.aiVersionIteration)))) {
+              opt.selected = true;
+            }
+            verSelect.appendChild(opt);
+          });
+          verSelect.addEventListener('change', function () {
+            var val = verSelect.value;
+            p.aiVersionIteration = (val === '') ? null : Number(val);
+            // Pre-fetch as soon as it's picked rather than waiting for Start
+            // Game, so the common case (picked well before starting) has the
+            // weights ready with no extra wait once the game actually begins.
+            if (p.aiVersionIteration != null) {
+              ensureVersionWeightsLoaded(p.aiVersionIteration).catch(function (err) {
+                console.error('Could not pre-fetch AI version ' + p.aiVersionIteration + ':', err);
+              });
+            }
+          });
+          row.appendChild(verSelect);
+        }
+
         playerListEl.appendChild(row);
       })(i);
     }
-    updateAiVersionTags();
+    updateAiInsightToggleVisibility();
   }
 
   // ---------- Game state ----------
@@ -332,6 +462,20 @@
   var boardHistory = [];
   var moveList = [];
   var viewIndex = 0;
+  // The CWN of whatever position this game actually began from - almost
+  // always a fresh empty board, but a share-link load (see the ?cwn= check
+  // near the bottom of this file) starts from wherever that link pointed
+  // instead. Recorded once at game start so a full-game export (T6) always
+  // has the real starting point, not an assumption that every game starts empty.
+  var gameStartCwn = null;
+  // Longest single-move cascade this game (most explosion waves triggered
+  // by one placed dot) - tracked incrementally in commitMove, surfaced in
+  // the finished-game record T7's history stores (see recordFinishedGame).
+  var longestChainThisGame = 0;
+  // Per-move {drop, label} from the most recent runGameReview() (T4), keyed
+  // by index into moveList - null until a review has actually run, or after
+  // any new game start/replay (a review is specific to one game's moves).
+  var moveReviewData = null;
 
   function isViewingLive() {
     return viewIndex === boardHistory.length - 1;
@@ -342,6 +486,15 @@
   // rank counts down from rows as r increases.
   function toAlgebraic(r, c) {
     return String.fromCharCode(97 + c) + (state.rows - r);
+  }
+
+  // Inverse of toAlgebraic - used by game import to turn a stored move list
+  // (algebraic notation, same as the move-history panel already shows) back
+  // into board coordinates for replaying via GL.playMove.
+  function fromAlgebraic(notation, rows) {
+    var c = notation.charCodeAt(0) - 97;
+    var rank = Number(notation.slice(1));
+    return { row: rows - rank, col: c };
   }
 
   function buildBoardDom(rows, cols) {
@@ -372,6 +525,38 @@
         cluster.className = 'dot-cluster';
         cell.appendChild(cluster);
         cell.addEventListener('click', onCellClick);
+        // r/c are `var`-declared loop counters shared by every iteration's
+        // closures (function-scoped, not block-scoped) - by the time any of
+        // these fire, they'd hold the loop's final post-exit value (rows,
+        // cols) for every single cell, not the cell they're attached to.
+        // Reading row/col from e.currentTarget.dataset at event time instead
+        // (same fix onCellClick already uses) sidesteps that entirely.
+        cell.addEventListener('mouseenter', function (e) {
+          showChainPreview(Number(e.currentTarget.dataset.row), Number(e.currentTarget.dataset.col));
+        });
+        cell.addEventListener('mouseleave', clearChainPreview);
+        cell.addEventListener('touchstart', function (e) {
+          var row = Number(e.currentTarget.dataset.row);
+          var col = Number(e.currentTarget.dataset.col);
+          longPressFiredForTouch = false;
+          clearTimeout(longPressTimer);
+          longPressTimer = setTimeout(function () {
+            longPressFiredForTouch = true;
+            showChainPreview(row, col);
+          }, LONG_PRESS_MS);
+        }, { passive: true });
+        cell.addEventListener('touchmove', cancelLongPress);
+        cell.addEventListener('touchcancel', cancelLongPress);
+        cell.addEventListener('touchend', function (e) {
+          clearTimeout(longPressTimer);
+          if (longPressFiredForTouch) {
+            // A long-press already showed the preview - lifting the finger
+            // should just dismiss it, not also commit the move via the
+            // synthetic click browsers fire after touchend.
+            e.preventDefault();
+            clearChainPreview();
+          }
+        });
         boardEl.appendChild(cell);
         rowEls.push(cell);
       }
@@ -381,6 +566,51 @@
 
   function playerColor(playerId) {
     return state.players[playerId].color;
+  }
+
+  // ---------- Chain preview (hover on desktop, long-press on mobile) ----------
+  // Highlights every cell a candidate move would detonate, cascading through
+  // the full chain - a pure rules simulation via GL.applyMove (same function
+  // commitMove uses for the real thing), never touching actual game state,
+  // so hovering around costs nothing and can never desync the real board.
+  var LONG_PRESS_MS = 380;
+  var chainPreviewCells = [];
+  var longPressTimer = null;
+  var longPressFiredForTouch = false;
+
+  function cancelLongPress() {
+    clearTimeout(longPressTimer);
+    if (longPressFiredForTouch) clearChainPreview();
+    longPressFiredForTouch = false;
+  }
+
+  function clearChainPreview() {
+    chainPreviewCells.forEach(function (el) {
+      el.classList.remove('chain-preview-first', 'chain-preview-cascade');
+      el.style.removeProperty('--chain-preview-color');
+    });
+    chainPreviewCells = [];
+  }
+
+  function showChainPreview(r, c) {
+    if (animating || !state || state.gameOver || isAiTurn() || !isViewingLive()) return;
+    var player = state.currentPlayerIndex;
+    var hasMoved = state.players[player].hasMoved;
+    if (!GL.isValidMove(state.board, r, c, player, hasMoved)) return;
+
+    clearChainPreview();
+    var dots = GL.placementDots(state, player);
+    var result = GL.applyMove(state.board, r, c, player, state.rows, state.cols, dots);
+    var color = playerColor(player);
+    result.steps.forEach(function (step, waveIndex) {
+      var cls = waveIndex === 0 ? 'chain-preview-first' : 'chain-preview-cascade';
+      step.exploded.forEach(function (pos) {
+        var el = cellEls[pos.row][pos.col];
+        el.style.setProperty('--chain-preview-color', color);
+        el.classList.add(cls);
+        chainPreviewCells.push(el);
+      });
+    });
   }
 
   function renderCell(r, c, board) {
@@ -430,6 +660,183 @@
     turnDotEl.style.color = p.color;
   }
 
+  // ---------- Quick position analysis (no search) ----------
+  // One NN.forward() call on the LIVE position - shared groundwork for T3's
+  // heatmap here and T1's eval bar (next). Deliberately always uses the
+  // DEFAULT bundled network (window.AI_WEIGHTS), not whichever checkpoint an
+  // AI opponent happens to be playing with (see the per-seat AI version
+  // picker) - this is a neutral analysis engine available in every game,
+  // including human-vs-human, the same way a chess site's eval bar isn't
+  // tied to whatever bot you chose to play against. Only covers the LIVE
+  // position, not a browsed-history frame - boardHistory only stores board
+  // snapshots, not the mover/hasMoved bookkeeping encodeState also needs.
+  function computeQuickAnalysis() {
+    if (!state || state.gameOver) return null;
+    var encoded = Encode.encodeState(state);
+    var out = NeuralNet.forward(encoded, window.AI_WEIGHTS);
+    var mover = state.currentPlayerIndex;
+    return {
+      winProbability: (out.value[mover] + 1) / 2,
+      policy: MCTS.maskedPolicy(state, out.policyLogits)
+    };
+  }
+
+  function clearPolicyHeatmap() {
+    for (var r = 0; r < cellEls.length; r++) {
+      for (var c = 0; c < cellEls[r].length; c++) {
+        cellEls[r][c].classList.remove('heatmap-cell');
+        cellEls[r][c].style.removeProperty('--heatmap-alpha');
+      }
+    }
+  }
+
+  // analysis is whatever computeQuickAnalysis() returned (or null) -
+  // rendered here rather than recomputed, since renderAnalysis() below
+  // already paid for the one forward pass this and renderEvalBar both need.
+  function renderPolicyHeatmapFrom(analysis) {
+    clearPolicyHeatmap();
+    if (!showPolicyHeatmap() || !analysis) return;
+    var cols = state.cols;
+    // Normalized to THIS position's own strongest candidate, not a fixed
+    // scale - a policy can be sharply peaked or fairly flat depending on the
+    // position, and a fixed scale would make a flat-but-still-informative
+    // position look like the network has no opinion at all.
+    var maxProb = 0;
+    for (var a = 0; a < analysis.policy.length; a++) {
+      if (analysis.policy[a] > maxProb) maxProb = analysis.policy[a];
+    }
+    if (maxProb <= 0) return;
+    for (a = 0; a < analysis.policy.length; a++) {
+      if (analysis.policy[a] <= 0) continue;
+      var r = Math.floor(a / cols), c = a % cols;
+      var el = cellEls[r][c];
+      el.classList.add('heatmap-cell');
+      el.style.setProperty('--heatmap-alpha', String(analysis.policy[a] / maxProb));
+    }
+  }
+
+  function renderEvalBarFrom(analysis) {
+    if (!evalBarEl) return;
+    if (!analysis) {
+      evalBarEl.classList.add('hidden');
+      return;
+    }
+    evalBarEl.classList.remove('hidden');
+    var pct = Math.round(analysis.winProbability * 100);
+    evalBarFillEl.style.height = pct + '%';
+    evalBarFillEl.style.setProperty('--eval-bar-color', playerColor(state.currentPlayerIndex));
+    evalBarLabelEl.textContent = pct + '%';
+  }
+
+  // Single entry point: computes the (possibly expensive-ish, though this
+  // network is tiny) forward pass ONCE and feeds both T1 (eval bar) and T3
+  // (policy heatmap) from it, rather than each recomputing independently.
+  // null whenever there's nothing sensible to analyse - no game, game over,
+  // or browsing move history (a browsed frame has no mover/hasMoved
+  // bookkeeping to encode, only boardHistory's board snapshot).
+  function renderAnalysis() {
+    var analysis = (state && !state.gameOver && isViewingLive()) ? computeQuickAnalysis() : null;
+    renderEvalBarFrom(analysis);
+    renderPolicyHeatmapFrom(analysis);
+  }
+
+  // ---------- Game review (T4) ----------
+  // Fewer simulations than live play (AI_SIMULATIONS=60) - "a short search
+  // at each position" per the brief, and a full game can be dozens of
+  // positions, each evaluated once here (see runGameReview).
+  var REVIEW_SIMULATIONS = 30;
+
+  // Thresholds are in win-probability PERCENTAGE POINTS lost, from the
+  // mover's own equity just before their move to their own equity just
+  // after it (both from the same fixed default-network search, so every
+  // move in a review is judged by the same referee regardless of which
+  // checkpoint actually played it). Chosen as round, chess.com/lichess-
+  // flavoured numbers, not calibrated against this specific game's actual
+  // swing distribution - a reasonable starting point, easy to retune once
+  // real reviewed games show whether they're too strict/lax in practice.
+  var REVIEW_THRESHOLDS = [
+    { max: 0.02, label: 'best' },
+    { max: 0.08, label: 'inaccuracy' },
+    { max: 0.20, label: 'mistake' },
+    { max: Infinity, label: 'blunder' }
+  ];
+
+  function classifyDrop(drop) {
+    for (var i = 0; i < REVIEW_THRESHOLDS.length; i++) {
+      if (drop <= REVIEW_THRESHOLDS[i].max) return REVIEW_THRESHOLDS[i].label;
+    }
+    return 'blunder';
+  }
+
+  // Full-game, absolute-player-id-indexed win probability from one search -
+  // rootInsight() only gives the CURRENT mover's value; a move's "after"
+  // evaluation needs the MOVER's value in a position where it's no longer
+  // their turn, so this reads straight from the root node instead.
+  function evaluateAllPlayers(evalState) {
+    var root = MCTS.runMcts(evalState, window.AI_WEIGHTS, REVIEW_SIMULATIONS);
+    var out = [];
+    for (var k = 0; k < evalState.players.length; k++) {
+      out.push((root.valueSum[k] / root.visitCount + 1) / 2);
+    }
+    return out;
+  }
+
+  var reviewGameBtn = document.getElementById('review-game-btn');
+  var reviewProgressEl = null; // created on demand, see runGameReview
+
+  // Replays the just-finished (or just-loaded) game from gameStartCwn move
+  // by move - same replay mechanism as T6/T7 - evaluating each position
+  // ONCE (N+1 evaluations for an N-move game, not 2N) and deriving each
+  // move's win-probability drop from two consecutive evaluations. Runs
+  // asynchronously (one setTimeout-yielded position at a time) so a search
+  // taking real wall-clock time per position doesn't freeze the page, and
+  // shows progress since a full game can take a while at REVIEW_SIMULATIONS.
+  function runGameReview() {
+    if (!gameStartCwn || moveList.length === 0) return;
+    var reviewMoveList = moveList.slice();
+    var replayState = GL.decodeCwn(gameStartCwn);
+
+    if (!reviewProgressEl) {
+      reviewProgressEl = document.createElement('div');
+      reviewProgressEl.className = 'review-progress';
+      moveHistoryListEl.parentNode.insertBefore(reviewProgressEl, moveHistoryListEl);
+    }
+    reviewProgressEl.classList.remove('hidden');
+    if (reviewGameBtn) reviewGameBtn.disabled = true;
+
+    var results = [];
+    var prevEval = evaluateAllPlayers(replayState);
+    var i = 0;
+
+    function step() {
+      if (i >= reviewMoveList.length) {
+        moveReviewData = results;
+        reviewProgressEl.classList.add('hidden');
+        if (reviewGameBtn) reviewGameBtn.disabled = false;
+        renderMoveHistoryList();
+        return;
+      }
+      reviewProgressEl.textContent = 'Analysing move ' + (i + 1) + ' of ' + reviewMoveList.length + '…';
+
+      var mover = replayState.currentPlayerIndex;
+      var coord = fromAlgebraic(reviewMoveList[i].notation, replayState.rows);
+      var moveResult = GL.playMove(replayState, coord.row, coord.col);
+      replayState = moveResult.state;
+
+      var nextEval = replayState.gameOver
+        ? (function () { var v = []; for (var k = 0; k < replayState.players.length; k++) v.push(k === replayState.winner ? 1 : 0); return v; })()
+        : evaluateAllPlayers(replayState);
+
+      var drop = Math.max(0, prevEval[mover] - nextEval[mover]);
+      results.push({ drop: drop, label: classifyDrop(drop) });
+      prevEval = nextEval;
+      i++;
+      setTimeout(step, 0); // yields to the browser between positions
+    }
+
+    setTimeout(step, 0);
+  }
+
   function clearLegalMoveHighlights() {
     for (var r = 0; r < cellEls.length; r++) {
       for (var c = 0; c < cellEls[r].length; c++) {
@@ -471,6 +878,15 @@
       var label = document.createElement('span');
       label.textContent = p.name;
       chip.appendChild(label);
+      // Per-seat, since each AI opponent can now be a different checkpoint
+      // (see the per-row version <select> in renderPlayerList) - there's no
+      // single "the AI version" to show once for the whole game any more.
+      if (p.isAI && p.aiVersionInfo && p.aiVersionInfo.iteration != null) {
+        var verLabel = document.createElement('span');
+        verLabel.className = 'player-chip-ai-version';
+        verLabel.textContent = 'iter ' + p.aiVersionInfo.iteration;
+        chip.appendChild(verLabel);
+      }
       playersStripEl.appendChild(chip);
     });
   }
@@ -561,8 +977,16 @@
         if (moveIdx < moveList.length) {
           var m = moveList[moveIdx];
           var boardIdx = moveIdx + 1; // this move produced boardHistory[boardIdx]
-          cell.textContent = m.notation;
+          cell.appendChild(document.createTextNode(m.notation));
           cell.style.color = m.color;
+          // Game review (T4) - a quality dot once runGameReview() has
+          // analysed this move; absent until/unless a review has run.
+          if (moveReviewData && moveReviewData[moveIdx]) {
+            var badge = document.createElement('span');
+            badge.className = 'move-quality move-quality-' + moveReviewData[moveIdx].label;
+            badge.title = moveReviewData[moveIdx].label + ' (' + Math.round(moveReviewData[moveIdx].drop * 100) + 'pp win% drop)';
+            cell.appendChild(badge);
+          }
           if (boardIdx === viewIndex) cell.classList.add('viewing');
           cell.addEventListener('click', (function (idx) {
             return function () { setViewIndex(idx); };
@@ -596,6 +1020,7 @@
       clearLegalMoveHighlights();
     }
     renderMoveHistoryList();
+    renderAnalysis(); // no-ops/clears (heatmap also needs the toggle on) unless live
   }
 
   function setViewIndex(idx) {
@@ -706,9 +1131,11 @@
   // both go through byte-for-byte the same rules application and rendering
   // path. Assumes the caller has already confirmed the move is legal.
   function commitMove(r, c) {
+    clearChainPreview(); // the board is about to change under whatever was being previewed
     var movingPlayerId = state.currentPlayerIndex;
     var movingColor = playerColor(movingPlayerId);
     var result = GL.playMove(state, r, c);
+    if (result.steps.length > longestChainThisGame) longestChainThisGame = result.steps.length;
     var epoch = gameEpoch;
 
     animating = true;
@@ -739,6 +1166,7 @@
       renderHistoryFrame();
       animating = false;
       if (state.gameOver) {
+        recordFinishedGame();
         showWinScreen();
       } else {
         maybePlayAiTurn(epoch);
@@ -761,6 +1189,10 @@
       void cellEl.offsetWidth; // restart animation
       cellEl.classList.add('shake');
       setTimeout(function () { cellEl.classList.remove('shake'); }, 300);
+      return;
+    }
+    if (inPuzzleMode) {
+      attemptPuzzleMove(r, c, e.currentTarget);
       return;
     }
     commitMove(r, c);
@@ -807,7 +1239,7 @@
     aiThinkingEl.classList.remove('hidden');
     setTimeout(function () {
       if (epoch !== gameEpoch) return; // game was reset while we were waiting to start
-      var root = MCTS.runMcts(state, activeAiWeights, AI_SIMULATIONS);
+      var root = MCTS.runMcts(state, state.players[state.currentPlayerIndex].aiWeights, AI_SIMULATIONS);
       var action = MCTS.bestAction(root);
       aiThinkingEl.classList.add('hidden');
       if (epoch !== gameEpoch || action === null) return;
@@ -838,20 +1270,87 @@
     fxLayerEl.innerHTML = '';
     aiThinkingEl.classList.add('hidden');
     clearAiInsight();
+    clearTimeout(longPressTimer);
+    longPressFiredForTouch = false;
+    chainPreviewCells = []; // old cells are about to be discarded by buildBoardDom anyway
+    // Puzzle mode (T10) is specific to whatever screen openPuzzle() set up -
+    // any other way of (re)entering the game screen (new game, replay,
+    // import) must not leave it active. openPuzzle() re-enables it itself,
+    // immediately after calling this.
+    inPuzzleMode = false;
+    currentPuzzle = null;
+    if (puzzleFeedbackEl) puzzleFeedbackEl.classList.add('hidden');
   }
 
+  // Whichever weights/version-info an AI seat actually plays with: its own
+  // explicit pick if that finished loading, otherwise the eagerly-bundled
+  // default - covers both "never picked one" (aiVersionIteration is null)
+  // and "picked one but its fetch hadn't resolved yet" (falls back rather
+  // than leaving a seat with no weights at all).
+  function resolveAiWeightsForPlayer(p) {
+    if (p.aiVersionIteration != null && versionWeightsCache[p.aiVersionIteration]) {
+      return { weights: versionWeightsCache[p.aiVersionIteration], info: versionInfoByIteration[p.aiVersionIteration] };
+    }
+    return { weights: window.AI_WEIGHTS, info: window.AI_VERSION };
+  }
+
+  // Building the game itself (startGameNow) is synchronous, same as before -
+  // but an AI seat's chosen version might still be fetching (picked just
+  // before hitting Start Game, or pre-fetch failed/is slow). This waits for
+  // every seat's own pick to be ready first, so a seat never silently starts
+  // on the wrong (default) network because of a race.
   function startGame() {
+    var neededIterations = [];
+    for (var i = 0; i < setup.numPlayers; i++) {
+      var p = setup.players[i];
+      if (p.isAI && p.aiVersionIteration != null && !versionWeightsCache[p.aiVersionIteration]) {
+        neededIterations.push(p.aiVersionIteration);
+      }
+    }
+
+    if (neededIterations.length === 0) {
+      startGameNow();
+      return;
+    }
+
+    startGameBtn.disabled = true;
+    var originalLabel = startGameBtn.textContent;
+    startGameBtn.textContent = 'Loading AI…';
+    Promise.all(neededIterations.map(function (it) {
+      // Swallow per-version failures here (not just at the end) so one bad
+      // fetch can't stop Promise.all from ever resolving for the rest -
+      // resolveAiWeightsForPlayer() falls back to the default for whichever
+      // seat's version still isn't in the cache once we get here.
+      return ensureVersionWeightsLoaded(it).catch(function (err) {
+        console.error('Could not load AI version ' + it + ' before starting - that seat will use the default instead.', err);
+      });
+    })).then(function () {
+      startGameBtn.disabled = false;
+      startGameBtn.textContent = originalLabel;
+      startGameNow();
+    });
+  }
+
+  function startGameNow() {
     resetAnimationState();
     var game = GL.createGame(setup.numPlayers);
     for (var i = 0; i < setup.numPlayers; i++) {
       game.players[i].name = setup.players[i].name;
       game.players[i].color = setup.players[i].color;
       game.players[i].isAI = setup.players[i].isAI;
+      if (setup.players[i].isAI) {
+        var resolved = resolveAiWeightsForPlayer(setup.players[i]);
+        game.players[i].aiWeights = resolved.weights;
+        game.players[i].aiVersionInfo = resolved.info;
+      }
     }
     state = game;
     boardHistory = [state.board];
     moveList = [];
     viewIndex = 0;
+    gameStartCwn = GL.encodeCwn(state);
+    longestChainThisGame = 0;
+    moveReviewData = null;
     buildBoardDom(state.rows, state.cols);
     renderBoard(state.board);
     renderTurnIndicator();
@@ -859,13 +1358,13 @@
     renderStatsPanel();
     renderMoveHistoryList();
     updateLegalMoveHighlights();
-    // Screen transition happens before the more decorative updateAiVersionTags()
-    // call - if that (or any future addition here) throws, the player still
-    // reaches a playable board instead of getting stuck on the setup screen.
+    renderAnalysis();
+    // Screen transition happens before anything else below that could throw -
+    // if it does, the player still reaches a playable board instead of
+    // getting stuck on the setup screen.
     winScreen.classList.add('hidden');
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
-    updateAiVersionTags();
     // Every other AI turn is kicked off reactively, from inside commitMove()
     // after a preceding move - but the very first turn of a new game has no
     // preceding move to react to. Without this, an AI seated at seat 0 would
@@ -881,9 +1380,434 @@
     setupScreen.classList.remove('hidden');
   }
 
+  // ---------- Local game history (T7) ----------
+  // Everything here stays on-device (localStorage) - nothing is sent
+  // anywhere, matching the "static site, no backend" constraint.
+  var HISTORY_STORAGE_KEY = 'colourwars-history';
+  var HISTORY_MAX_GAMES = 200; // a soft cap so localStorage can't grow forever
+
+  function loadGameHistory() {
+    try {
+      var raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return []; // private mode, corrupted data, etc. - just start fresh
+    }
+  }
+
+  function saveGameHistory(list) {
+    try {
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(list.slice(-HISTORY_MAX_GAMES)));
+    } catch (e) { /* private mode / storage full - the game itself still works fine */ }
+  }
+
+  // Called once from commitMove() exactly when state.gameOver newly becomes
+  // true - records everything a replay needs (T6's startCwn + moves) plus
+  // the summary fields T7's stats are computed from.
+  function recordFinishedGame() {
+    var players = state.players.map(function (p) {
+      return {
+        name: p.name,
+        isAI: !!p.isAI,
+        aiIteration: (p.isAI && p.aiVersionInfo) ? p.aiVersionInfo.iteration : null
+      };
+    });
+    var entry = {
+      date: new Date().toISOString(),
+      numPlayers: players.length,
+      players: players,
+      winnerIndex: state.winner,
+      totalMoves: state.totalMoves,
+      longestChain: longestChainThisGame,
+      startCwn: gameStartCwn,
+      moves: moveList.map(function (m) { return m.notation; })
+    };
+    var history = loadGameHistory();
+    history.push(entry);
+    saveGameHistory(history);
+  }
+
+  function formatOpponents(entry) {
+    return entry.players.map(function (p, i) {
+      var label = p.name + (p.isAI ? (' (AI' + (p.aiIteration != null ? ' iter ' + p.aiIteration : '') + ')') : '');
+      return (i === entry.winnerIndex) ? label + ' ★' : label; // star marks the winner
+    }).join(' vs ');
+  }
+
+  // Win rate per bot (T7): only counts games with exactly one AI seat, since
+  // "did the human(s) beat this bot" isn't well-defined once there are
+  // several AI opponents at once or none at all - grouped by iteration
+  // because that's the actual variable being compared (see the per-seat
+  // version picker), not by name (every AI seat is just "Player N").
+  function computeHistoryStats(history) {
+    var byBot = {}; // iteration -> {wins, total}
+    var totalMoves = 0;
+    var longestChain = 0;
+    var longestChainDate = null;
+    history.forEach(function (entry) {
+      totalMoves += entry.totalMoves;
+      if (entry.longestChain > longestChain) {
+        longestChain = entry.longestChain;
+        longestChainDate = entry.date;
+      }
+      var aiSeats = entry.players
+        .map(function (p, i) { return { p: p, i: i }; })
+        .filter(function (x) { return x.p.isAI; });
+      if (aiSeats.length === 1) {
+        var bot = aiSeats[0];
+        var key = (bot.p.aiIteration != null) ? String(bot.p.aiIteration) : 'unknown';
+        if (!byBot[key]) byBot[key] = { wins: 0, total: 0 };
+        byBot[key].total++;
+        if (entry.winnerIndex !== bot.i) byBot[key].wins++; // a non-AI seat won
+      }
+    });
+    return {
+      gamesPlayed: history.length,
+      avgMoves: history.length ? (totalMoves / history.length) : 0,
+      longestChain: longestChain,
+      longestChainDate: longestChainDate,
+      byBot: byBot
+    };
+  }
+
+  function renderHistoryScreen() {
+    var history = loadGameHistory();
+    var stats = computeHistoryStats(history);
+
+    historyStatsPanelEl.innerHTML = '';
+    var lines = [
+      'Games played: ' + stats.gamesPlayed,
+      'Average game length: ' + (stats.gamesPlayed ? Math.round(stats.avgMoves) + ' moves' : '–'),
+      'Longest chain: ' + (stats.gamesPlayed ? stats.longestChain + ' waves' : '–')
+    ];
+    var botKeys = Object.keys(stats.byBot);
+    if (botKeys.length > 0) {
+      botKeys.sort(function (a, b) { return Number(a) - Number(b); }).forEach(function (key) {
+        var b = stats.byBot[key];
+        var pct = Math.round((b.wins / b.total) * 100);
+        lines.push('Win rate vs iter ' + key + ': ' + pct + '% (' + b.wins + '/' + b.total + ')');
+      });
+    }
+    lines.forEach(function (line) {
+      var row = document.createElement('div');
+      row.className = 'stat-row';
+      row.textContent = line;
+      historyStatsPanelEl.appendChild(row);
+    });
+
+    historyListEl.innerHTML = '';
+    if (history.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = 'No games played yet.';
+      historyListEl.appendChild(empty);
+      return;
+    }
+    history.slice().reverse().forEach(function (entry) {
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'history-row';
+
+      var top = document.createElement('div');
+      top.className = 'history-row-top';
+      var opp = document.createElement('span');
+      opp.textContent = formatOpponents(entry);
+      top.appendChild(opp);
+      row.appendChild(top);
+
+      var meta = document.createElement('div');
+      meta.className = 'history-row-meta';
+      var when = new Date(entry.date);
+      meta.textContent = when.toLocaleDateString() + ' · ' + entry.totalMoves + ' moves · longest chain ' + entry.longestChain;
+      row.appendChild(meta);
+
+      row.addEventListener('click', function () {
+        try {
+          var replay = replayGameFromExport(entry.startCwn, entry.moves);
+          loadGameFromReplay(replay);
+        } catch (e) {
+          window.alert('Could not replay this game: ' + e.message);
+        }
+      });
+
+      historyListEl.appendChild(row);
+    });
+  }
+
+  function openHistory() {
+    renderHistoryScreen();
+    setupScreen.classList.add('hidden');
+    historyScreen.classList.remove('hidden');
+  }
+
+  function closeHistory() {
+    historyScreen.classList.add('hidden');
+    setupScreen.classList.remove('hidden');
+  }
+
+  // ---------- Rules (T9) ----------
+  function openRules() {
+    setupScreen.classList.add('hidden');
+    rulesScreen.classList.remove('hidden');
+  }
+
+  function closeRules() {
+    rulesScreen.classList.add('hidden');
+    setupScreen.classList.remove('hidden');
+  }
+
+  // ---------- Daily puzzle (T10) ----------
+  // js/puzzles.json is mined offline by python -m colourwars.mine_puzzles
+  // (a standalone script, separate from the training/eval pipeline) - each
+  // entry is {cwn, solution, before, after} where "before"/"after" are the
+  // mover's own win probability (per a real MCTS search) immediately before
+  // and after the solution move. Fetched the same way as
+  // js/ai/versions/index.json - if it 404s or the fetch is blocked (plain
+  // file:// pages), the button just never appears rather than erroring.
+  var puzzles = [];
+  var inPuzzleMode = false;
+  var currentPuzzle = null;
+  var puzzleSolved = false;
+
+  fetch('js/puzzles.json')
+    .then(function (res) { return res.ok ? res.json() : []; })
+    .then(function (list) {
+      puzzles = Array.isArray(list) ? list : [];
+      if (openPuzzleBtn) openPuzzleBtn.classList.toggle('hidden', puzzles.length === 0);
+    })
+    .catch(function () { /* no puzzles yet / fetch blocked - button stays hidden */ });
+
+  // Deterministic by UTC calendar date - same puzzle for everyone on the
+  // same day, cycling through the bank once it's been exhausted (the bank
+  // grows over time simply by re-running mine_puzzles.py for longer).
+  function todaysPuzzle() {
+    if (puzzles.length === 0) return null;
+    var dayIndex = Math.floor(Date.now() / 86400000);
+    return puzzles[dayIndex % puzzles.length];
+  }
+
+  function openPuzzle() {
+    var puzzle = todaysPuzzle();
+    if (!puzzle) return;
+    resetAnimationState();
+    var decoded = GL.decodeCwn(puzzle.cwn);
+    state = decoded;
+    boardHistory = [state.board];
+    moveList = [];
+    viewIndex = 0;
+    gameStartCwn = puzzle.cwn;
+    longestChainThisGame = 0;
+    moveReviewData = null;
+    inPuzzleMode = true;
+    currentPuzzle = puzzle;
+    puzzleSolved = false;
+
+    buildBoardDom(state.rows, state.cols);
+    renderPlayersStrip();
+    renderHistoryFrame();
+    turnLabelEl.textContent = 'Find ' + state.players[state.currentPlayerIndex].name + "'s winning move!";
+    turnDotEl.style.background = playerColor(state.currentPlayerIndex);
+    if (puzzleFeedbackEl) {
+      puzzleFeedbackEl.textContent = '';
+      puzzleFeedbackEl.classList.remove('hidden');
+    }
+    setupScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+  }
+
+  function attemptPuzzleMove(r, c, cellEl) {
+    if (puzzleSolved || !currentPuzzle) return;
+    var notation = toAlgebraic(r, c);
+    if (notation === currentPuzzle.solution) {
+      puzzleSolved = true;
+      if (puzzleFeedbackEl) puzzleFeedbackEl.textContent = 'Solved! ' + notation + ' was the move.';
+      var movingColor = playerColor(state.currentPlayerIndex);
+      var result = GL.playMove(state, r, c);
+      var epoch = gameEpoch;
+      animateSteps(result.steps, movingColor, epoch).then(function () {
+        if (epoch !== gameEpoch) return;
+        state = result.state;
+        renderBoard(state.board);
+        renderPlayersStrip();
+      });
+    } else {
+      if (puzzleFeedbackEl) puzzleFeedbackEl.textContent = 'Not quite - try again.';
+      if (cellEl) {
+        cellEl.classList.remove('shake');
+        void cellEl.offsetWidth;
+        cellEl.classList.add('shake');
+        setTimeout(function () { cellEl.classList.remove('shake'); }, 300);
+      }
+    }
+  }
+
+  // ---------- Share / export / import (T6: CWN) ----------
+
+  // Clipboard writes need a secure context and, in some browsers, a fresh
+  // user gesture - both true for a direct button click, but this is
+  // best-effort regardless: any failure (unsupported browser, blocked
+  // permission, plain file:// testing) falls back to a prompt() dialog with
+  // the text pre-filled and selected, so it's always at least copyable by hand.
+  function copyToClipboardOrPrompt(text, promptMessage) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(function () {
+        window.prompt(promptMessage, text);
+      });
+    } else {
+      window.prompt(promptMessage, text);
+    }
+  }
+
+  function shareCurrentPosition() {
+    if (!state) return;
+    var cwn = GL.encodeCwn(state);
+    var url = location.origin + location.pathname + '?cwn=' + encodeURIComponent(cwn);
+    copyToClipboardOrPrompt(url, 'Link to this position (copied to your clipboard if supported):');
+  }
+
+  function exportCurrentGame() {
+    if (!state || !gameStartCwn) return;
+    var payload = {
+      format: 'colourwars-game-v1',
+      startPosition: gameStartCwn,
+      moves: moveList.map(function (m) { return m.notation; })
+    };
+    copyToClipboardOrPrompt(JSON.stringify(payload),
+      'Game export (copied to your clipboard if supported) - paste this to import elsewhere:');
+  }
+
+  // Rebuilds a full game from a CWN starting position plus a list of
+  // algebraic-notation moves by replaying each one for real through
+  // GL.playMove - the same rules application the live game already uses,
+  // so an imported game can never diverge from what actually happened.
+  function replayGameFromExport(startPosition, moves) {
+    var startState = GL.decodeCwn(startPosition);
+    var replayState = startState;
+    var replayBoardHistory = [startState.board];
+    var replayMoveList = [];
+    var longestChain = 0;
+    for (var i = 0; i < moves.length; i++) {
+      var coord = fromAlgebraic(moves[i], startState.rows);
+      var mover = replayState.currentPlayerIndex;
+      var color = replayState.players[mover].color;
+      var result = GL.playMove(replayState, coord.row, coord.col);
+      if (result.state === replayState) {
+        throw new Error('move ' + (i + 1) + ' ("' + moves[i] + '") is illegal from the position reached so far');
+      }
+      if (result.steps.length > longestChain) longestChain = result.steps.length;
+      replayState = result.state;
+      replayBoardHistory.push(replayState.board);
+      replayMoveList.push({ color: color, notation: moves[i] });
+    }
+    return {
+      state: replayState, boardHistory: replayBoardHistory, moveList: replayMoveList,
+      startCwn: startPosition, longestChain: longestChain
+    };
+  }
+
+  // Shared by importGame() and the ?cwn= share-link check at the bottom of
+  // this file: puts an already-built {state, boardHistory, moveList,
+  // startCwn} on screen the same way startGameNow() does. There's no
+  // setup.players to read names/colours/AI seats from here - the imported
+  // or shared state already carries its own (decodeCwn's defaults: every
+  // seat human, standard names/colours - CWN encodes a position, not which
+  // seats are AI or which checkpoint they use).
+  function loadGameFromReplay(replay) {
+    resetAnimationState();
+    state = replay.state;
+    boardHistory = replay.boardHistory;
+    moveList = replay.moveList;
+    viewIndex = boardHistory.length - 1;
+    gameStartCwn = replay.startCwn;
+    // The share-link path (see below) builds a replay object with no
+    // "longestChain" field (there's no move history to derive it from, just
+    // a bare position) - 0 is the correct starting value there too.
+    longestChainThisGame = replay.longestChain || 0;
+    moveReviewData = null;
+    buildBoardDom(state.rows, state.cols);
+    renderPlayersStrip();
+    renderHistoryFrame();
+    winScreen.classList.add('hidden');
+    setupScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    maybePlayAiTurn(gameEpoch);
+  }
+
+  function importGame() {
+    var text = window.prompt('Paste a Colour Wars game export:');
+    if (!text) return;
+    var payload;
+    try {
+      payload = JSON.parse(text);
+    } catch (e) {
+      window.alert('That is not valid game-export JSON.');
+      return;
+    }
+    if (!payload || payload.format !== 'colourwars-game-v1' ||
+        typeof payload.startPosition !== 'string' || !Array.isArray(payload.moves)) {
+      window.alert('Unrecognized game export format.');
+      return;
+    }
+    var replay;
+    try {
+      replay = replayGameFromExport(payload.startPosition, payload.moves);
+    } catch (e) {
+      window.alert('Could not replay this game: ' + e.message);
+      return;
+    }
+    loadGameFromReplay(replay);
+  }
+
   startGameBtn.addEventListener('click', startGame);
   newGameBtn.addEventListener('click', backToSetup);
   playAgainBtn.addEventListener('click', backToSetup);
+  // Guarded the same way as other optional elements throughout this file -
+  // a stale cached copy of index.html from before these buttons existed
+  // must not crash the rest of setup.
+  if (shareBtn) shareBtn.addEventListener('click', shareCurrentPosition);
+  if (exportGameBtn) exportGameBtn.addEventListener('click', exportCurrentGame);
+  if (importGameBtn) importGameBtn.addEventListener('click', importGame);
+  if (openHistoryBtn) openHistoryBtn.addEventListener('click', openHistory);
+  if (backFromHistoryBtn) backFromHistoryBtn.addEventListener('click', closeHistory);
+  if (openRulesBtn) openRulesBtn.addEventListener('click', openRules);
+  if (openPuzzleBtn) openPuzzleBtn.addEventListener('click', openPuzzle);
+  if (backFromRulesBtn) backFromRulesBtn.addEventListener('click', closeRules);
+  if (reviewGameBtn) {
+    reviewGameBtn.addEventListener('click', function () {
+      // showWinScreen() never hides game-screen underneath (win-screen is a
+      // fixed-position overlay) - hiding it just reveals the board that's
+      // already there, exactly as the game ended.
+      winScreen.classList.add('hidden');
+      runGameReview();
+    });
+  }
+  if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', function () {
+      if (window.confirm('Clear all local game history? This cannot be undone.')) {
+        saveGameHistory([]);
+        renderHistoryScreen();
+      }
+    });
+  }
+
+  // A ?cwn=<encoded position> URL (see shareCurrentPosition) loads straight
+  // into that position instead of the normal setup screen. Falls back to
+  // normal setup on any decode failure - a malformed/tampered link should
+  // never leave the page stuck instead of just landing on setup.
+  var cwnParam = new URLSearchParams(location.search).get('cwn');
+  if (cwnParam) {
+    try {
+      var sharedState = GL.decodeCwn(cwnParam);
+      // loadGameFromReplay() itself hides setup-screen/shows game-screen -
+      // renderPlayerCountButtons()/renderPlayerList() below still run
+      // regardless, so setup is ready and waiting for whenever "New Game" is
+      // clicked later, same as any other game.
+      loadGameFromReplay({ state: sharedState, boardHistory: [sharedState.board], moveList: [], startCwn: cwnParam });
+    } catch (e) {
+      console.error('Invalid ?cwn= link, falling back to normal setup.', e);
+    }
+  }
 
   renderPlayerCountButtons();
   renderPlayerList();

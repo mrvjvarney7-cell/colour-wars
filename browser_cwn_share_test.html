@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
+     no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
+     browsers, especially mobile ones, can hold a stale copy well past a
+     manual refresh. This asks the browser itself not to cache the page. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Colour Wars</title>
+<!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
+     and mobile browsers often keep serving a cached copy even after a manual
+     refresh. Bump the number whenever style.css or the js/ files change. -->
+<link rel="stylesheet" href="style.css?v=46">
+</head>
+<body>
+
+  <!-- Fixed outside the screens below so it stays reachable no matter which
+       one (setup/game/win) is currently showing. -->
+  <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-label="Switch to light theme">Light mode</button>
+
+  <!-- Setup screen -->
+  <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours &amp; opponents</div>
+        <div id="player-list" class="player-list"></div>
+        <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
+          <input type="checkbox" id="ai-insight-toggle-input" checked>
+          Show AI's win chance &amp; considered moves
+        </label>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Analysis</div>
+        <!-- Not gated behind any AI seat being in play - a neutral analysis
+             engine (the default bundled network), same idea as a chess
+             site's eval bar not caring which bot you're actually playing. -->
+        <label class="ai-insight-toggle" id="policy-heatmap-toggle">
+          <input type="checkbox" id="policy-heatmap-toggle-input">
+          Show policy heatmap
+        </label>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+      <!-- Lets us confirm which build a device is actually running, since mobile
+           browsers cache aggressively. Bump alongside the ?v= cache buster. -->
+      <p class="build-tag">ColourWarsBeta1.0</p>
+    </div>
+  </section>
+
+  <!-- Game screen -->
+  <section id="game-screen" class="screen hidden">
+    <div class="game-layout">
+      <div class="game-main">
+        <header class="turn-bar" id="turn-bar">
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot" id="turn-dot"></span>
+            <span id="turn-label">Player 1's turn</span>
+            <span id="ai-thinking" class="ai-thinking hidden">
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              AI is thinking&hellip;
+            </span>
+            <span id="ai-insight" class="ai-insight hidden"></span>
+          </div>
+          <button id="share-btn" class="icon-btn" aria-label="Copy a link to this position" title="Share this position">Share</button>
+          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+        </header>
+
+        <div class="players-strip" id="players-strip"></div>
+        <div class="stats-panel" id="stats-panel"></div>
+
+        <div class="board-row">
+          <!-- Value head's win probability for the side to move, no search -
+               a neutral analysis engine (window.AI_WEIGHTS), same as the
+               policy heatmap above, not tied to any AI opponent's own
+               checkpoint. Hidden whenever there's nothing to show it for
+               (no game, game over, browsing move history). -->
+          <div class="eval-bar hidden" id="eval-bar" aria-hidden="true">
+            <span class="eval-bar-label" id="eval-bar-label"></span>
+            <div class="eval-bar-track">
+              <div class="eval-bar-fill" id="eval-bar-fill"></div>
+            </div>
+          </div>
+          <div class="board-wrap">
+            <div class="board" id="board"></div>
+            <div class="fx-layer" id="fx-layer"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="move-history-panel" id="move-history-panel">
+        <div class="move-history-header">
+          <span>Moves</span>
+          <span class="move-history-actions">
+            <button id="export-game-btn" class="text-btn" type="button" aria-label="Export this game">Export</button>
+            <button id="import-game-btn" class="text-btn" type="button" aria-label="Import a game">Import</button>
+          </span>
+        </div>
+        <div class="move-history-list" id="move-history-list"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Win overlay -->
+  <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js?v=46"></script>
+  <script src="js/ai/encode.js?v=46"></script>
+  <script src="js/ai/network.js?v=46"></script>
+  <script src="js/ai/mcts.js?v=46"></script>
+  <script src="js/ai/weights.js?v=46"></script>
+  <script src="js/ui.js?v=46"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers T6's share/export/import UI: Share produces a
+       ?cwn= URL that GameLogic.decodeCwn reproduces the exact rendered
+       board from, Export produces a colourwars-game-v1 JSON whose moves
+       match the real move-history panel, and Import replays that export
+       into a fresh game reaching the identical board/move-history again -
+       clipboard is stubbed to always fail so both features exercise their
+       real prompt() fallback deterministically (headless browsers can't be
+       relied on to grant clipboard-write permission silently). -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      // Always rejects, so shareCurrentPosition/exportCurrentGame's real
+      // fallback path (window.prompt) is what actually runs, not a maybe-
+      // silently-succeeding clipboard write we'd have no way to observe.
+      // navigator.clipboard itself is a getter-only accessor (reassigning IT
+      // throws immediately, outside any try/catch, silently killing this
+      // whole script) - shadow the method on the object it returns instead.
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText = function () { return Promise.reject(new Error('no clipboard in test')); };
+      }
+
+      var lastPromptOutput = null; // captures the pre-filled value of the last OUTPUT-style prompt (share/export)
+      window.prompt = function (msg, val) {
+        if (arguments.length >= 2) { lastPromptOutput = val; return null; }
+        return lastPromptOutput; // INPUT-style prompt (import) - feed back whatever was last "shown"
+      };
+      var alertMessages = [];
+      window.alert = function (msg) { alertMessages.push(msg); };
+
+      function ownedCellsSnapshot() {
+        var cells = document.querySelectorAll('.cell.owned');
+        return Array.prototype.map.call(cells, function (el) {
+          return el.dataset.row + ',' + el.dataset.col + ':' + el.style.getPropertyValue('--cell-color') + ':' +
+            el.querySelector('.dot-cluster').getAttribute('data-count');
+        }).sort();
+      }
+
+      function moveHistoryNotations() {
+        return Array.prototype.map.call(document.querySelectorAll('.move-cell:not(.empty)'), function (el) {
+          return el.textContent;
+        });
+      }
+
+      function afterTick(fn) { setTimeout(fn, 80); }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+
+        document.getElementById('start-game-btn').click(); // default 2p human-vs-human
+
+        afterTick(function () {
+          document.querySelector('.cell[data-row="3"][data-col="3"]').click(); // P1 opens center
+          afterTick(function () {
+            document.querySelector('.cell[data-row="0"][data-col="0"]').click(); // P2 opens corner
+            afterTick(runShareCheck);
+          });
+        });
+
+        function runShareCheck() {
+          document.getElementById('share-btn').click();
+          // copyToClipboardOrPrompt awaits navigator.clipboard.writeText()
+          // (a real Promise, even though the stub rejects synchronously) -
+          // its .catch() fallback to window.prompt() only runs as a
+          // microtask/next tick, not within this same synchronous handler.
+          afterTick(afterShareClick);
+        }
+
+        function afterShareClick() {
+          var boardBefore = ownedCellsSnapshot();
+          var shareCheck = { ok: true };
+          var shareUrl = lastPromptOutput;
+          if (!shareUrl || shareUrl.indexOf('?cwn=') === -1) {
+            shareCheck = { ok: false, reason: 'expected share to produce a ?cwn= URL, got: ' + shareUrl };
+          } else {
+            var cwn = decodeURIComponent(shareUrl.split('?cwn=')[1]);
+            try {
+              var decoded = GameLogic.decodeCwn(cwn);
+              var decodedCells = [];
+              for (var r = 0; r < decoded.board.length; r++) {
+                for (var c = 0; c < decoded.board[r].length; c++) {
+                  var cell = decoded.board[r][c];
+                  if (cell.owner !== null) {
+                    decodedCells.push(r + ',' + c + ':owner' + cell.owner + ':count' + cell.count);
+                  }
+                }
+              }
+              // Compare counts at least (exact colour string comparison would
+              // require re-deriving the palette here) - real coverage is in
+              // gameLogic.test.js's CWN round-trip tests; this just proves
+              // the UI wiring actually reaches GameLogic.decodeCwn correctly.
+              if (decodedCells.length !== boardBefore.length) {
+                shareCheck = { ok: false, reason: 'decoded ' + decodedCells.length + ' owned cells, DOM shows ' + boardBefore.length };
+              }
+            } catch (e) {
+              shareCheck = { ok: false, reason: 'GameLogic.decodeCwn threw on the shared CWN: ' + e.message };
+            }
+          }
+
+          lastPromptOutput = null;
+          document.getElementById('export-game-btn').click();
+          // Same async fallback timing as share (see above) - give the
+          // clipboard rejection's .catch() a tick to actually call prompt().
+          afterTick(function () { afterExportClick(boardBefore, shareCheck); });
+        }
+
+        function afterExportClick(boardBefore, shareCheck) {
+          var exportCheck = { ok: true };
+          var exportText = lastPromptOutput;
+          var payload = null;
+          if (!exportText) {
+            exportCheck = { ok: false, reason: 'expected Export to produce prompt output' };
+          } else {
+            try {
+              payload = JSON.parse(exportText);
+              var realMoves = moveHistoryNotations();
+              if (payload.format !== 'colourwars-game-v1') {
+                exportCheck = { ok: false, reason: 'unexpected format: ' + payload.format };
+              } else if (JSON.stringify(payload.moves) !== JSON.stringify(realMoves)) {
+                exportCheck = { ok: false, reason: 'export moves ' + JSON.stringify(payload.moves) + ' != move-history panel ' + JSON.stringify(realMoves) };
+              }
+            } catch (e) {
+              exportCheck = { ok: false, reason: 'exported text is not valid JSON: ' + e.message };
+            }
+          }
+
+          // Now prove Import actually reconstructs the same game: start a
+          // fresh, different game, then import the export captured above.
+          document.getElementById('new-game-btn').click();
+          afterTick(function () {
+            document.getElementById('start-game-btn').click();
+            afterTick(function () {
+              document.getElementById('import-game-btn').click(); // window.prompt() stub returns exportText
+              afterTick(function () {
+                var importedCells = ownedCellsSnapshot();
+                var importedMoves = moveHistoryNotations();
+                var importCheck = { ok: true };
+                if (JSON.stringify(importedMoves) !== JSON.stringify(payload ? payload.moves : null)) {
+                  importCheck = { ok: false, reason: 'imported move history ' + JSON.stringify(importedMoves) + ' != exported ' + JSON.stringify(payload && payload.moves) };
+                } else if (JSON.stringify(importedCells) !== JSON.stringify(boardBefore)) {
+                  importCheck = { ok: false, reason: 'imported board does not match the original board' };
+                } else if (alertMessages.length > 0) {
+                  importCheck = { ok: false, reason: 'unexpected alert() during import: ' + JSON.stringify(alertMessages) };
+                }
+
+                report({
+                  ok: errors.length === 0 && shareCheck.ok && exportCheck.ok && importCheck.ok,
+                  errors: errors,
+                  shareCheck: shareCheck,
+                  exportCheck: exportCheck,
+                  importCheck: importCheck
+                });
+              });
+            });
+          });
+        }
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>

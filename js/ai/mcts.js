@@ -224,6 +224,45 @@
     return { mover: mover, winProbability: winProbability, moves: moves };
   }
 
+  // Legal-masked softmax over a RAW forward-pass's policy logits - no
+  // search, just the network's single-glance prior. A standalone function
+  // rather than reusing expandLeafWithOutput's identical masking/softmax
+  // logic (some duplication, deliberately - that function is the one real
+  // move-selection depends on, and this exists purely for display, so a
+  // display-only caller mistakenly perturbing search behaviour is worse
+  // than the ~15 duplicated lines). Returns a (rows*cols) array, zero for
+  // every illegal action - same convention as mcts.py's visit_count_policy.
+  function maskedPolicy(state, policyLogits) {
+    var rows = state.rows, cols = state.cols;
+    var player = state.currentPlayerIndex;
+    var hasMoved = state.players[player].hasMoved;
+    var legalActions = [];
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        if (GL.isValidMove(state.board, r, c, player, hasMoved)) legalActions.push(r * cols + c);
+      }
+    }
+    var pi = new Float32Array(rows * cols);
+    if (legalActions.length === 0) return pi;
+
+    var maxLogit = -Infinity;
+    for (var i = 0; i < legalActions.length; i++) {
+      var lv = policyLogits[legalActions[i]];
+      if (lv > maxLogit) maxLogit = lv;
+    }
+    var expVals = new Array(legalActions.length);
+    var sum = 0;
+    for (i = 0; i < legalActions.length; i++) {
+      var e = Math.exp(policyLogits[legalActions[i]] - maxLogit);
+      expVals[i] = e;
+      sum += e;
+    }
+    for (i = 0; i < legalActions.length; i++) {
+      pi[legalActions[i]] = sum > 0 ? (expVals[i] / sum) : (1 / legalActions.length);
+    }
+    return pi;
+  }
+
   root.MCTS = {
     Node: Node,
     selectLeaf: selectLeaf,
@@ -232,6 +271,7 @@
     expandLeafWithOutput: expandLeafWithOutput,
     runMcts: runMcts,
     bestAction: bestAction,
-    rootInsight: rootInsight
+    rootInsight: rootInsight,
+    maskedPolicy: maskedPolicy
   };
 })(typeof window !== 'undefined' ? window : globalThis);

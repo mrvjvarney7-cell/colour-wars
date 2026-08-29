@@ -147,16 +147,25 @@ body {
 
 .player-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 10px 12px;
 }
 
+/* Mobile-first: the name input claims its own full line (flex-basis 100%
+   forces every sibling - swatches, the AI toggle - onto a second line),
+   since on a narrow phone there isn't room for an 8-character name next to
+   4 fixed 44px swatches and a toggle button on one line - it used to
+   squeeze down to a handful of visible characters ("Player 2" -> "Playeı").
+   Reverts to a single line once the row has enough width (see the
+   min-width media query below), since the setup card's own max-width
+   already leaves room for everything on desktop/tablet. */
 .player-row input[type="text"] {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
   background: transparent;
   border: none;
@@ -165,6 +174,21 @@ body {
   font-weight: 600;
   outline: none;
   padding: 12px 4px;
+}
+
+@media (min-width: 480px) {
+  .player-row input[type="text"] {
+    flex: 1 1 0%;
+  }
+  /* An AI row's 4th child (the version select, flex-basis 100% - see
+     .player-ai-version-select below) still needs the name on its own line
+     even at desktop width: swatches + toggle + select leave less room than
+     the 3-child human-row case this breakpoint was tuned for, and squeeze
+     the name the same way the original mobile bug did. Same fix, same rule,
+     just scoped to rows that actually have that 4th child. */
+  .player-row:has(.player-ai-version-select) input[type="text"] {
+    flex: 1 1 100%;
+  }
 }
 
 .swatches {
@@ -216,6 +240,22 @@ body {
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
+/* Per-seat AI version picker - only shown once that row is toggled to AI.
+   flex-basis 100% puts it on its own line within the row (same reasoning as
+   the name input in F1: no room to share a line with the swatches/toggle on
+   a narrow phone), rather than a single page-level "AI strength" control. */
+.player-ai-version-select {
+  flex: 1 1 100%;
+  margin-top: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .primary-btn {
   padding: 16px;
   border-radius: 16px;
@@ -229,6 +269,80 @@ body {
 }
 
 .primary-btn:active { transform: scale(0.98); }
+
+.secondary-btn {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secondary-btn:active { transform: scale(0.98); }
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.history-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  text-align: left;
+}
+
+.history-row-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.history-row-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.history-empty {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 12px;
+}
+
+.rules-card {
+  max-width: 560px;
+  text-align: left;
+}
+
+.rules-section h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.rules-section p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.rules-section p b {
+  color: var(--text);
+}
 
 .build-tag {
   margin: -10px 0 0;
@@ -319,6 +433,9 @@ body {
 }
 
 .move-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 700;
@@ -326,6 +443,23 @@ body {
   text-transform: uppercase;
   color: var(--text-dim);
   border-bottom: 1px solid var(--line);
+}
+
+.move-history-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.text-btn {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 2px 4px;
 }
 
 /* One column per player plus a leading round-number column, e.g. for a 2p
@@ -370,6 +504,31 @@ body {
 
 .move-cell.empty {
   cursor: default;
+}
+
+/* Game review (T4) - a small quality marker appended after a move's
+   notation once analysis has run; colour is the ONLY signal that needs to
+   read at a glance (chess-review convention), so these are deliberately
+   plain, saturated dots rather than something needing its own legend. */
+.move-quality {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.move-quality-best { background: #16a34a; }
+.move-quality-inaccuracy { background: #eab308; }
+.move-quality-mistake { background: #f97316; }
+.move-quality-blunder { background: #dc2626; }
+
+.review-progress {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
 }
 
 @media (min-width: 860px) {
@@ -526,6 +685,15 @@ body {
   text-decoration: line-through;
 }
 
+.player-chip-ai-version {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.6;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+
 .player-chip.current {
   color: var(--text);
   border-color: var(--chip-color, var(--accent));
@@ -578,6 +746,50 @@ body {
 .stat-value b {
   color: var(--text);
   font-weight: 700;
+}
+
+.board-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+}
+
+/* Eval bar (T1): win probability for the side to move, from a single
+   no-search network forward pass (see computeQuickAnalysis in ui.js).
+   column-reverse so the fill grows up from the bottom, height% = win%. */
+.eval-bar {
+  width: 22px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.eval-bar-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-bar-track {
+  flex: 1;
+  width: 100%;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.eval-bar-fill {
+  width: 100%;
+  height: 50%;
+  background: var(--eval-bar-color, var(--accent));
+  transition: height 0.4s ease, background-color 0.4s ease;
 }
 
 .board-wrap {
@@ -673,6 +885,36 @@ body {
    something. */
 .cell.legal-move {
   box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
+/* Policy heatmap (T3, toggleable): a raw-prior wash behind the dots, never
+   over them - ::before paints before the dot-cluster in DOM order, so it
+   sits underneath rather than obscuring the dot count. --heatmap-alpha is
+   set per-cell from JS, normalized to this position's own strongest
+   candidate so it reads clearly regardless of how peaked/flat the policy
+   happens to be at any given position. */
+.cell.heatmap-cell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  opacity: calc(var(--heatmap-alpha, 0) * 0.5);
+  pointer-events: none;
+}
+
+/* Chain preview (hover on desktop, long-press on mobile - see
+   showChainPreview in ui.js): every cell a candidate move would detonate,
+   simulated with the real rules but never touching actual game state.
+   First-order (the wave the placed dot itself triggers) gets a solid ring;
+   every later cascading wave gets the same colour faded, so a long chain
+   reads as "it keeps going" without needing a different colour per wave. */
+.cell.chain-preview-first {
+  box-shadow: 0 0 0 3px var(--chain-preview-color, var(--accent)) inset;
+}
+
+.cell.chain-preview-cascade {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--chain-preview-color, var(--accent)) 55%, transparent) inset;
 }
 
 .dot-cluster {

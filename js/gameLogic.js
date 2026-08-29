@@ -253,6 +253,140 @@
     return { state: newState, steps: result.steps };
   }
 
+  // ---- CWN (Colour Wars Notation) ----
+  // Position notation: "<board> <mover> <notYetOpened> <ply>"
+  //   board: 7 rows separated by '/', each row a sequence of digit-runs
+  //     (count of consecutive empty cells) and letters (occupied cells) - a
+  //     cell can never rest AT its critical mass (4, see applyMove), so only
+  //     counts 1-3 ever need encoding. Player 0 = a/b/c (1/2/3 dots), player
+  //     1 = d/e/f, player 2 = g/h/i, player 3 = j/k/l.
+  //   mover: current player index, one digit.
+  //   notYetOpened: every player index that hasn't made their opening move
+  //     yet, concatenated (e.g. "01"), or '-' once everyone has.
+  //   ply: total moves played so far.
+  // Example, an empty 2-player board: "7/7/7/7/7/7/7 0 01 0".
+  //
+  // numPlayers has no field of its own - decodeCwn recovers it as one more
+  // than the highest player index referenced anywhere (board owners, mover,
+  // notYetOpened). A player who has both opened AND been reduced to zero
+  // cells (eliminated) without being the current mover leaves no trace in
+  // any of those three places, so a position reached that way would
+  // silently decode with too few players - a known limitation of the
+  // format as specified (no player-count field), not a bug to route around
+  // by inventing one.
+  var CWN_LETTERS = 'abcdefghijkl';
+
+  function cwnCharForCell(cell) {
+    if (cell.owner === null || cell.count === 0) return null;
+    return CWN_LETTERS.charAt(cell.owner * 3 + (cell.count - 1));
+  }
+
+  function encodeCwnRow(row) {
+    var out = '';
+    var emptyRun = 0;
+    for (var c = 0; c < row.length; c++) {
+      var ch = cwnCharForCell(row[c]);
+      if (ch === null) {
+        emptyRun++;
+      } else {
+        if (emptyRun > 0) { out += emptyRun; emptyRun = 0; }
+        out += ch;
+      }
+    }
+    if (emptyRun > 0) out += emptyRun;
+    return out;
+  }
+
+  function encodeCwn(state) {
+    var boardStr = state.board.map(encodeCwnRow).join('/');
+    var notOpened = state.players
+      .map(function (p, i) { return p.hasMoved ? null : i; })
+      .filter(function (i) { return i !== null; })
+      .join('');
+    if (notOpened === '') notOpened = '-';
+    return boardStr + ' ' + state.currentPlayerIndex + ' ' + notOpened + ' ' + state.totalMoves;
+  }
+
+  function decodeCwnRow(rowStr, cols) {
+    var cells = [];
+    for (var i = 0; i < rowStr.length; i++) {
+      var ch = rowStr.charAt(i);
+      if (ch >= '0' && ch <= '9') {
+        var n = Number(ch);
+        for (var k = 0; k < n; k++) cells.push({ owner: null, count: 0 });
+      } else {
+        var idx = CWN_LETTERS.indexOf(ch);
+        if (idx === -1) throw new Error('invalid CWN board character: "' + ch + '"');
+        cells.push({ owner: Math.floor(idx / 3), count: (idx % 3) + 1 });
+      }
+    }
+    if (cells.length !== cols) {
+      throw new Error('CWN row "' + rowStr + '" decoded to ' + cells.length + ' cells, expected ' + cols);
+    }
+    return cells;
+  }
+
+  function decodeCwn(cwn) {
+    var parts = cwn.trim().split(/\s+/);
+    if (parts.length !== 4) throw new Error('CWN must have 4 space-separated fields, got ' + parts.length);
+    var boardStr = parts[0], moverStr = parts[1], notOpenedStr = parts[2], plyStr = parts[3];
+
+    var rowStrs = boardStr.split('/');
+    if (rowStrs.length !== ROWS) throw new Error('CWN board must have ' + ROWS + ' rows, got ' + rowStrs.length);
+    var board = rowStrs.map(function (rowStr) { return decodeCwnRow(rowStr, COLS); });
+
+    var mover = Number(moverStr);
+    var ply = Number(plyStr);
+    if (!Number.isFinite(mover) || !Number.isFinite(ply)) {
+      throw new Error('CWN mover/ply fields must be numbers, got "' + moverStr + '"/"' + plyStr + '"');
+    }
+    var notOpened = (notOpenedStr === '-') ? [] : notOpenedStr.split('').map(Number);
+
+    var maxPlayerIndex = mover;
+    board.forEach(function (row) {
+      row.forEach(function (cell) {
+        if (cell.owner !== null && cell.owner > maxPlayerIndex) maxPlayerIndex = cell.owner;
+      });
+    });
+    notOpened.forEach(function (i) { if (i > maxPlayerIndex) maxPlayerIndex = i; });
+    var numPlayers = Math.max(2, Math.min(4, maxPlayerIndex + 1));
+
+    var players = [];
+    for (var i = 0; i < numPlayers; i++) {
+      players.push({
+        id: i,
+        name: 'Player ' + (i + 1),
+        color: COLOR_PALETTE[i].hex,
+        colorName: COLOR_PALETTE[i].name,
+        active: true,
+        hasMoved: notOpened.indexOf(i) === -1
+      });
+    }
+
+    // Mirrors playMove's own elimination/game-over derivation (same
+    // first-round-complete gate), applied once up front for this snapshot
+    // instead of incrementally across a real move sequence.
+    var firstRoundComplete = ply >= numPlayers;
+    if (firstRoundComplete) {
+      players.forEach(function (p) {
+        if (countCellsForPlayer(board, p.id) === 0) p.active = false;
+      });
+    }
+    var activePlayers = players.filter(function (p) { return p.active; });
+    var gameOver = firstRoundComplete && activePlayers.length === 1;
+
+    return {
+      rows: ROWS,
+      cols: COLS,
+      board: board,
+      players: players,
+      currentPlayerIndex: mover,
+      totalMoves: ply,
+      gameOver: gameOver,
+      winner: gameOver ? activePlayers[0].id : null
+    };
+  }
+
   var GameLogic = {
     ROWS: ROWS,
     COLS: COLS,
@@ -269,7 +403,9 @@
     countCellsForPlayer: countCellsForPlayer,
     createGame: createGame,
     playMove: playMove,
-    nextActivePlayerIndex: nextActivePlayerIndex
+    nextActivePlayerIndex: nextActivePlayerIndex,
+    encodeCwn: encodeCwn,
+    decodeCwn: decodeCwn
   };
 
   if (typeof module !== 'undefined' && module.exports) {

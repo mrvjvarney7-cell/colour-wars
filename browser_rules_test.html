@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
      no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
      browsers, especially mobile ones, can hold a stale copy well past a
@@ -54,11 +53,8 @@
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <button id="open-history-btn" class="secondary-btn" type="button">Game History</button>
       <button id="open-rules-btn" class="secondary-btn" type="button">How to Play</button>
-      <button id="open-puzzle-btn" class="secondary-btn hidden" type="button">Daily Puzzle</button>
-      <!-- Version label, not tied to the ?v= cache-buster number (that still
-           increments on every asset change; this only changes on an actual
-           versioned release). Also lets us confirm which build a device is
-           actually running, since mobile browsers cache aggressively. -->
+      <!-- Lets us confirm which build a device is actually running, since mobile
+           browsers cache aggressively. Bump alongside the ?v= cache buster. -->
       <p class="build-tag">ColourWarsBeta1.0</p>
     </div>
   </section>
@@ -137,9 +133,6 @@
               AI is thinking&hellip;
             </span>
             <span id="ai-insight" class="ai-insight hidden"></span>
-            <!-- Daily puzzle (T10) feedback - "find the winning move" prompt
-                 and correct/incorrect result. Only shown in puzzle mode. -->
-            <span id="puzzle-feedback" class="ai-insight hidden"></span>
           </div>
           <button id="share-btn" class="icon-btn" aria-label="Copy a link to this position" title="Share this position">Share</button>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
@@ -185,7 +178,6 @@
     <div class="win-card">
       <div class="win-dot" id="win-dot"></div>
       <h2 id="win-title">Player 1 wins!</h2>
-      <button id="review-game-btn" class="secondary-btn" type="button">Review Game</button>
       <button id="play-again-btn" class="primary-btn">New Game</button>
     </div>
   </section>
@@ -196,5 +188,62 @@
   <script src="js/ai/mcts.js?v=46"></script>
   <script src="js/ai/weights.js?v=46"></script>
   <script src="js/ui.js?v=46"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers T9 (rules page): hidden by default, opening it
+       hides setup and shows the rules content (which actually explains the
+       non-standard 3-dot opening and fixed critical mass), and Back returns
+       cleanly to setup. -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      try {
+        var rulesScreen = document.getElementById('rules-screen');
+        var setupScreen = document.getElementById('setup-screen');
+        if (!rulesScreen || rulesScreen.classList.contains('hidden') === false) {
+          return fail('expected rules screen hidden by default');
+        }
+
+        document.getElementById('open-rules-btn').click();
+
+        var afterOpenCheck = { ok: true };
+        if (rulesScreen.classList.contains('hidden')) {
+          afterOpenCheck = { ok: false, reason: 'rules screen still hidden after clicking How to Play' };
+        } else if (!setupScreen.classList.contains('hidden')) {
+          afterOpenCheck = { ok: false, reason: 'setup screen should hide while viewing rules' };
+        } else {
+          var text = rulesScreen.textContent;
+          var mustMention = ['3 dots', 'critical mass', '4', 'eliminat'];
+          var missing = mustMention.filter(function (kw) { return text.toLowerCase().indexOf(kw.toLowerCase()) === -1; });
+          if (missing.length > 0) {
+            afterOpenCheck = { ok: false, reason: 'rules text missing expected topics: ' + JSON.stringify(missing) };
+          }
+        }
+
+        document.getElementById('back-from-rules-btn').click();
+        var afterBackCheck = {
+          ok: rulesScreen.classList.contains('hidden') && !setupScreen.classList.contains('hidden')
+        };
+        if (!afterBackCheck.ok) afterBackCheck.reason = 'expected Back to hide rules and show setup again';
+
+        report({
+          ok: errors.length === 0 && afterOpenCheck.ok && afterBackCheck.ok,
+          errors: errors,
+          afterOpenCheck: afterOpenCheck,
+          afterBackCheck: afterBackCheck
+        });
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
 </body>
 </html>

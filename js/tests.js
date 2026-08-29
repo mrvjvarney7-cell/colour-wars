@@ -469,6 +469,89 @@
     assertTrue(r3.steps.length >= 1);
   });
 
+  // ---------- CWN (Colour Wars Notation) ----------
+
+  test('CWN: fresh empty board matches the designed example exactly, for 2/3/4 players', function () {
+    assertEqual(GL.encodeCwn(GL.createGame(2, 7, 7)), '7/7/7/7/7/7/7 0 01 0');
+    assertEqual(GL.encodeCwn(GL.createGame(3, 7, 7)), '7/7/7/7/7/7/7 0 012 0');
+    assertEqual(GL.encodeCwn(GL.createGame(4, 7, 7)), '7/7/7/7/7/7/7 0 0123 0');
+  });
+
+  test('CWN: decodeCwn(encodeCwn(x)) round-trips a fresh game exactly', function () {
+    var state = GL.createGame(3, 7, 7);
+    var decoded = GL.decodeCwn(GL.encodeCwn(state));
+    assertEqual(GL.encodeCwn(decoded), GL.encodeCwn(state));
+    assertEqual(decoded.players.length, 3);
+    assertEqual(decoded.currentPlayerIndex, 0);
+    assertEqual(decoded.totalMoves, 0);
+    assertTrue(decoded.players.every(function (p) { return !p.hasMoved && p.active; }));
+  });
+
+  test('CWN: round-trips a mid-game position with mixed empty runs, dot counts and owners', function () {
+    var state = GL.createGame(4, 7, 7);
+    state = GL.playMove(state, 0, 0).state;   // p0 opens corner, 3 dots
+    state = GL.playMove(state, 6, 6).state;   // p1 opens opposite corner, 3 dots
+    state = GL.playMove(state, 3, 3).state;   // p2 opens center, 3 dots
+    state = GL.playMove(state, 1, 1).state;   // p3 opens, 3 dots - first round now complete
+    state = GL.playMove(state, 0, 0).state;   // p0's only cell: 3+1=4, explodes into (0,1)/(1,0)
+    state = GL.playMove(state, 6, 6).state;   // p1's only cell: 3+1=4, explodes into (6,5)/(5,6)
+    var cwn = GL.encodeCwn(state);
+    var decoded = GL.decodeCwn(cwn);
+    assertEqual(GL.encodeCwn(decoded), cwn, 'CWN should be stable under a decode/re-encode round trip');
+    for (var r = 0; r < 7; r++) {
+      for (var c = 0; c < 7; c++) {
+        assertEqual(decoded.board[r][c].owner, state.board[r][c].owner, 'owner mismatch at ' + r + ',' + c);
+        assertEqual(decoded.board[r][c].count, state.board[r][c].count, 'count mismatch at ' + r + ',' + c);
+      }
+    }
+    assertEqual(decoded.currentPlayerIndex, state.currentPlayerIndex);
+    assertEqual(decoded.totalMoves, state.totalMoves);
+  });
+
+  test('CWN: notYetOpened is "-" once every player has opened', function () {
+    var state = GL.createGame(2, 7, 7);
+    state = GL.playMove(state, 0, 0).state;
+    state = GL.playMove(state, 6, 6).state;
+    var cwn = GL.encodeCwn(state);
+    assertTrue(cwn.indexOf(' 0 - ') !== -1, 'expected "-" once both players have opened, got: ' + cwn);
+    var decoded = GL.decodeCwn(cwn);
+    assertTrue(decoded.players.every(function (p) { return p.hasMoved; }));
+  });
+
+  test('CWN: a hand-built position with an eliminated player round-trips its board and active flags', function () {
+    var board = GL.createEmptyBoard(7, 7);
+    board[3][3] = { owner: 1, count: 2 };
+    board[3][4] = { owner: 1, count: 1 };
+    var state = {
+      rows: 7, cols: 7, board: board,
+      players: [
+        { id: 0, name: 'Player 1', color: GL.COLOR_PALETTE[0].hex, colorName: GL.COLOR_PALETTE[0].name, active: false, hasMoved: true },
+        { id: 1, name: 'Player 2', color: GL.COLOR_PALETTE[1].hex, colorName: GL.COLOR_PALETTE[1].name, active: true, hasMoved: true }
+      ],
+      currentPlayerIndex: 1, totalMoves: 5, gameOver: true, winner: 1
+    };
+    var cwn = GL.encodeCwn(state);
+    var decoded = GL.decodeCwn(cwn);
+    assertEqual(decoded.players[0].active, false, 'player 0 (zero cells, ply past first round) should decode inactive');
+    assertEqual(decoded.players[1].active, true);
+    assertEqual(decoded.gameOver, true);
+    assertEqual(decoded.winner, 1);
+  });
+
+  test('CWN: rejects malformed input rather than silently producing a wrong board', function () {
+    var threw = false;
+    try { GL.decodeCwn('7/7/7/7/7/7 0 01 0'); } catch (e) { threw = true; }
+    assertTrue(threw, 'expected an error for a board with the wrong row count');
+
+    threw = false;
+    try { GL.decodeCwn('7/7/7/7/7/7/7 0 01'); } catch (e) { threw = true; }
+    assertTrue(threw, 'expected an error for missing the ply field');
+
+    threw = false;
+    try { GL.decodeCwn('zzzzzzz/7/7/7/7/7/7 0 01 0'); } catch (e) { threw = true; }
+    assertTrue(threw, 'expected an error for an invalid board character');
+  });
+
   // Render results to the page and console.
   var out = document.getElementById('results');
   var lines = [];

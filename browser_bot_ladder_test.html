@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
      no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
      browsers, especially mobile ones, can hold a stale copy well past a
@@ -54,11 +53,8 @@
       <button id="start-game-btn" class="primary-btn">Start Game</button>
       <button id="open-history-btn" class="secondary-btn" type="button">Game History</button>
       <button id="open-rules-btn" class="secondary-btn" type="button">How to Play</button>
-      <button id="open-puzzle-btn" class="secondary-btn hidden" type="button">Daily Puzzle</button>
-      <!-- Version label, not tied to the ?v= cache-buster number (that still
-           increments on every asset change; this only changes on an actual
-           versioned release). Also lets us confirm which build a device is
-           actually running, since mobile browsers cache aggressively. -->
+      <!-- Lets us confirm which build a device is actually running, since mobile
+           browsers cache aggressively. Bump alongside the ?v= cache buster. -->
       <p class="build-tag">ColourWarsBeta1.0</p>
     </div>
   </section>
@@ -137,9 +133,6 @@
               AI is thinking&hellip;
             </span>
             <span id="ai-insight" class="ai-insight hidden"></span>
-            <!-- Daily puzzle (T10) feedback - "find the winning move" prompt
-                 and correct/incorrect result. Only shown in puzzle mode. -->
-            <span id="puzzle-feedback" class="ai-insight hidden"></span>
           </div>
           <button id="share-btn" class="icon-btn" aria-label="Copy a link to this position" title="Share this position">Share</button>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
@@ -185,7 +178,6 @@
     <div class="win-card">
       <div class="win-dot" id="win-dot"></div>
       <h2 id="win-title">Player 1 wins!</h2>
-      <button id="review-game-btn" class="secondary-btn" type="button">Review Game</button>
       <button id="play-again-btn" class="primary-btn">New Game</button>
     </div>
   </section>
@@ -196,5 +188,92 @@
   <script src="js/ai/mcts.js?v=46"></script>
   <script src="js/ai/weights.js?v=46"></script>
   <script src="js/ui.js?v=46"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers T8 (bot ladder): the same underlying promoted
+       checkpoints now show as named/avatared opponents with progressive
+       unlock - rank 0 always unlocked, rank 1 locked until a human beats
+       rank 0 (per T7's local history), and it opens up once that happens.
+       Run with --allow-file-access-from-files (fetches js/ai/versions/index.json). -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      localStorage.removeItem('colourwars-history');
+
+      var rows = document.querySelectorAll('#player-list .player-row');
+      rows[1].querySelector('.ai-toggle-btn').click(); // seat 1 -> AI
+
+      var pollCount = 0;
+      function waitForOptions() {
+        pollCount++;
+        var sel = document.querySelectorAll('#player-list .player-row')[1].querySelector('.player-ai-version-select');
+        if (sel && sel.options.length > 1) {
+          afterOptionsLoaded(sel);
+        } else if (pollCount >= 50) {
+          fail('version select never populated (index.json fetch may have failed)');
+        } else {
+          setTimeout(waitForOptions, 100);
+        }
+      }
+
+      function optionByPrefix(sel, prefix) {
+        return Array.prototype.filter.call(sel.options, function (o) { return o.textContent.indexOf(prefix) === 0; })[0];
+      }
+
+      function afterOptionsLoaded(sel) {
+        try {
+          var rookie = optionByPrefix(sel, '🌱 Rookie');
+          var challengerLocked = optionByPrefix(sel, '🔒 Locked - beat Rookie');
+          var beforeCheck = { ok: true };
+          if (!rookie || rookie.disabled) {
+            beforeCheck = { ok: false, reason: 'expected an enabled Rookie option, got ' + (rookie ? 'disabled' : 'none') };
+          } else if (!challengerLocked) {
+            beforeCheck = { ok: false, reason: 'expected a locked option reading "beat Rookie" before any bot is beaten' };
+          } else if (!challengerLocked.disabled) {
+            beforeCheck = { ok: false, reason: 'the locked option should itself be disabled, not just labelled locked' };
+          }
+
+          // Seed history: a human (seat 0) beat iteration 3 (Rookie) once.
+          localStorage.setItem('colourwars-history', JSON.stringify([{
+            date: new Date().toISOString(), numPlayers: 2,
+            players: [{ name: 'Player 1', isAI: false, aiIteration: null }, { name: 'Player 2', isAI: true, aiIteration: 3 }],
+            winnerIndex: 0, totalMoves: 5, longestChain: 1,
+            startCwn: '7/7/7/7/7/7/7 0 01 0', moves: ['d4', 'a1']
+          }]));
+
+          // Force a fresh render so the select rebuilds with the new unlock state.
+          document.querySelectorAll('#player-list .player-row')[1].querySelector('.ai-toggle-btn').click(); // -> Human
+          document.querySelectorAll('#player-list .player-row')[1].querySelector('.ai-toggle-btn').click(); // -> AI again
+
+          var sel2 = document.querySelectorAll('#player-list .player-row')[1].querySelector('.player-ai-version-select');
+          var challenger = optionByPrefix(sel2, '⚔️ Challenger');
+          var veteranLocked = optionByPrefix(sel2, '🔒 Locked - beat Challenger');
+          var afterCheck = { ok: true };
+          if (!challenger || challenger.disabled) {
+            afterCheck = { ok: false, reason: 'expected Challenger to be unlocked after beating Rookie, got ' + (challenger ? 'disabled' : 'none') };
+          } else if (!veteranLocked || !veteranLocked.disabled) {
+            afterCheck = { ok: false, reason: 'expected the NEXT tier (Veteran) to still be locked' };
+          }
+
+          report({
+            ok: errors.length === 0 && beforeCheck.ok && afterCheck.ok,
+            errors: errors, beforeCheck: beforeCheck, afterCheck: afterCheck
+          });
+        } catch (e) {
+          fail('exception in afterOptionsLoaded: ' + e.message);
+        }
+      }
+
+      waitForOptions();
+    })();
+  </script>
 </body>
 </html>

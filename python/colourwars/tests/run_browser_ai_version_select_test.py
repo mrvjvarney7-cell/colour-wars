@@ -1,8 +1,9 @@
-"""Covers the AI version picker: js/ai/versions/index.json (built by
+"""Covers the PER-SEAT AI version picker: js/ai/versions/index.json (built by
 python -m colourwars.export_all_versions) lists every PROMOTED iteration,
-the setup screen's dropdown populates from it, and switching to a
-non-default version actually changes which weights power the AI's real
-moves - not just the displayed label.
+each AI player's own row gets a dropdown populated from it (not one picker
+for every AI seat), and two different seats choosing two different
+checkpoints actually end up running two different networks - not just
+showing two different labels.
 
 Uses --allow-file-access-from-files, since Chromium blocks fetch() for
 plain file:// pages otherwise (confirmed: without this flag, the fetch
@@ -33,8 +34,8 @@ def main():
 
     result = subprocess.run(
         [edge, "--headless=new", "--disable-gpu", "--no-sandbox", "--allow-file-access-from-files",
-         "--virtual-time-budget=40000", "--dump-dom", file_url],
-        capture_output=True, text=True, timeout=90,
+         "--virtual-time-budget=90000", "--dump-dom", file_url],
+        capture_output=True, text=True, timeout=120,
     )
 
     match = re.search(r"<title>RESULT:(.*?)</title>", result.stdout, re.DOTALL)
@@ -47,8 +48,8 @@ def main():
     print(json.dumps(data, indent=2))
 
     ok = data.get("ok", False)
-    print(f"\n{'PASS' if ok else 'FAIL'}: AI version-select test "
-          f"(errors={data.get('errors')}, ownedAfterSwitchedAiMove={data.get('ownedAfterSwitchedAiMove')}).")
+    print(f"\n{'PASS' if ok else 'FAIL'}: per-seat AI version-select test "
+          f"(errors={data.get('errors')}, ownedAfterBothAiMoved={data.get('ownedAfterBothAiMoved')}).")
     return 0 if ok else 1
 
 

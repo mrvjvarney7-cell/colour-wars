@@ -36,6 +36,38 @@ def find_edge():
     )
 
 
+# GOTCHA (found 2026-08-29, verified on this machine's Edge build): headless
+# Edge silently clamps window.innerWidth to ~492px minimum regardless of
+# --window-size - requesting 320x600 or 390x844 both still report
+# window.innerWidth ~492. A test that needs a real MOBILE viewport (anything
+# a `@media (max-width: ...)` / `(min-width: ...)` query would treat as
+# narrow) CANNOT be verified this way: window.matchMedia() and CSS media
+# queries evaluate against this real, always->=480px viewport, not whatever
+# size you asked for - a test that looks like it's checking mobile layout
+# may actually be silently checking desktop layout instead, with no error or
+# warning of any kind.
+#
+# This already produced one confusing false trail (2026-08-29): a screenshot
+# taken with --window-size=390,844 appeared to show correct mobile wrapping,
+# when it was actually exercising the desktop CSS rule the whole time by
+# coincidence of the specific text being tested.
+#
+# Workaround for layout that depends on CONTENT WIDTH (not a media query):
+# wrap the real markup in `<div id="viewport-sim" style="width:NNNpx">` -
+# block-level descendants fill that div's width same as they would a real
+# viewport, as long as nothing in the relevant CSS uses vw/vh units.
+#
+# Workaround for layout that depends on a MEDIA QUERY specifically: there is
+# no way to fake this via window-size. Make a temp copy of the stylesheet
+# with the media query's threshold bumped absurdly high (e.g. replace
+# "@media (min-width: 480px)" with "@media (min-width: 99999px)") to force
+# it to never match, and reason about the un-gated rule directly - see the
+# 2026-08-29 per-seat-AI-dropdown desktop-squeeze fix for a worked example.
+#
+# If a future Edge version fixes this floor, these workarounds become
+# unnecessary but remain harmless.
+
+
 def main():
     edge = find_edge()
     file_url = "file:///" + os.path.abspath(TEST_PAGE).replace("\\", "/")

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Colour Wars</title>
+<link rel="stylesheet" href="style.css?v=37">
+</head>
+<body>
+
+  <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-label="Switch to light theme">Light mode</button>
+
+  <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours &amp; opponents</div>
+        <div id="player-list" class="player-list"></div>
+        <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
+          <input type="checkbox" id="ai-insight-toggle-input" checked>
+          Show AI's win chance &amp; considered moves
+        </label>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+      <p class="build-tag">build 37</p>
+    </div>
+  </section>
+
+  <section id="game-screen" class="screen hidden">
+    <div class="game-layout">
+      <div class="game-main">
+        <header class="turn-bar" id="turn-bar">
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot" id="turn-dot"></span>
+            <span id="turn-label">Player 1's turn</span>
+            <span id="ai-thinking" class="ai-thinking hidden">
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              AI is thinking&hellip;
+            </span>
+            <span id="ai-insight" class="ai-insight hidden"></span>
+          </div>
+          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+        </header>
+
+        <div class="players-strip" id="players-strip"></div>
+        <div class="stats-panel" id="stats-panel"></div>
+
+        <div class="board-wrap">
+          <div class="board" id="board"></div>
+          <div class="fx-layer" id="fx-layer"></div>
+        </div>
+      </div>
+
+      <aside class="move-history-panel" id="move-history-panel">
+        <div class="move-history-header">Moves</div>
+        <div class="move-history-list" id="move-history-list"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js?v=37"></script>
+  <script src="js/ai/encode.js?v=37"></script>
+  <script src="js/ai/network.js?v=37"></script>
+  <script src="js/ai/mcts.js?v=37"></script>
+  <script src="js/ai/weights.js?v=37"></script>
+  <script src="js/ui.js?v=37"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers the chain preview: hovering a legal move that
+       would detonate highlights exactly the cell(s) that explode (not
+       merely gain a dot), with a distinct class for the first-order wave,
+       and never mutates the real board/state - the preview must vanish on
+       mouseleave and never touch an illegal cell. -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) {
+        document.title = 'RESULT:' + JSON.stringify(obj);
+      }
+
+      function fail(reason) {
+        report({ ok: false, reason: reason, errors: errors });
+      }
+
+      function cellAt(r, c) {
+        return document.querySelector('.cell[data-row="' + r + '"][data-col="' + c + '"]');
+      }
+
+      function classesOf(el) {
+        return { first: el.classList.contains('chain-preview-first'), cascade: el.classList.contains('chain-preview-cascade') };
+      }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+
+        document.getElementById('start-game-btn').click(); // default 2p human-vs-human
+
+        // commitMove() is promise-based even for a move with nothing to
+        // animate (an empty step list still goes through a .then()), so
+        // each move needs a tick to actually settle before the next action -
+        // a bare synchronous click-click-hover sequence would run ahead of
+        // the first move's own state update.
+        function afterTick(fn) { setTimeout(fn, 60); }
+
+        // P1 opens center (3 dots, 3<4 critical mass - no explosion).
+        cellAt(3, 3).click();
+        afterTick(function () {
+          // P2 opens a corner, well away from P1's cell.
+          cellAt(0, 0).click();
+          afterTick(runChecks);
+        });
+
+        function runChecks() {
+          var boardBeforePreview = document.querySelectorAll('.cell.owned').length;
+
+          // P1's only legal move now is their own cell (3,3), already
+          // holding 3 dots - placing again reaches critical mass (4) and
+          // detonates, gaining its up-to-4 orthogonal neighbours a dot each
+          // (none of which were already primed, so this is a clean
+          // single-wave case).
+          var origin = cellAt(3, 3);
+          origin.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+
+          var originClasses = classesOf(origin);
+          var neighbourClasses = [cellAt(2, 3), cellAt(4, 3), cellAt(3, 2), cellAt(3, 4)].map(classesOf);
+
+          var previewCheck = { ok: true };
+          if (!originClasses.first || originClasses.cascade) {
+            previewCheck = { ok: false, reason: 'origin cell should have chain-preview-first only, got ' + JSON.stringify(originClasses) };
+          } else if (neighbourClasses.some(function (c) { return c.first || c.cascade; })) {
+            previewCheck = { ok: false, reason: 'neighbours only GAIN a dot, they should not carry any preview class: ' + JSON.stringify(neighbourClasses) };
+          } else if (document.querySelectorAll('.cell.owned').length !== boardBeforePreview) {
+            previewCheck = { ok: false, reason: 'hovering must not mutate the real board (owned-cell count changed)' };
+          }
+
+          origin.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+          var clearedCheck = { ok: !classesOf(origin).first && !classesOf(origin).cascade };
+
+          // An illegal cell for the mover (P2's opening cell, not owned by
+          // P1) must never show a preview at all.
+          var illegal = cellAt(0, 0);
+          illegal.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+          var illegalCheck = { ok: !classesOf(illegal).first && !classesOf(illegal).cascade };
+          illegal.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+
+          report({
+            ok: errors.length === 0 && previewCheck.ok && clearedCheck.ok && illegalCheck.ok,
+            errors: errors,
+            previewCheck: previewCheck,
+            clearedCheck: clearedCheck,
+            illegalCheck: illegalCheck
+          });
+        }
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>

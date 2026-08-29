@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Colour Wars</title>
+<link rel="stylesheet" href="style.css?v=46">
+</head>
+<body>
+
+  <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-label="Switch to light theme">Light mode</button>
+
+  <section id="setup-screen" class="screen">
+    <div class="setup-card">
+      <h1 class="title">Colour Wars</h1>
+      <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+      <div class="field">
+        <div class="field-label">Players</div>
+        <div id="player-count-buttons" class="segmented"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Colours &amp; opponents</div>
+        <div id="player-list" class="player-list"></div>
+        <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
+          <input type="checkbox" id="ai-insight-toggle-input" checked>
+          Show AI's win chance &amp; considered moves
+        </label>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Analysis</div>
+        <label class="ai-insight-toggle" id="policy-heatmap-toggle">
+          <input type="checkbox" id="policy-heatmap-toggle-input">
+          Show policy heatmap
+        </label>
+      </div>
+
+      <button id="start-game-btn" class="primary-btn">Start Game</button>
+      <p class="build-tag">ColourWarsBeta1.0</p>
+    </div>
+  </section>
+
+  <section id="game-screen" class="screen hidden">
+    <div class="game-layout">
+      <div class="game-main">
+        <header class="turn-bar" id="turn-bar">
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot" id="turn-dot"></span>
+            <span id="turn-label">Player 1's turn</span>
+            <span id="ai-thinking" class="ai-thinking hidden">
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              <span class="ai-thinking-dot"></span>
+              AI is thinking&hellip;
+            </span>
+            <span id="ai-insight" class="ai-insight hidden"></span>
+          </div>
+          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
+        </header>
+
+        <div class="players-strip" id="players-strip"></div>
+        <div class="stats-panel" id="stats-panel"></div>
+
+        <div class="board-wrap">
+          <div class="board" id="board"></div>
+          <div class="fx-layer" id="fx-layer"></div>
+        </div>
+      </div>
+
+      <aside class="move-history-panel" id="move-history-panel">
+        <div class="move-history-header">Moves</div>
+        <div class="move-history-list" id="move-history-list"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="win-screen" class="screen hidden overlay">
+    <div class="win-card">
+      <div class="win-dot" id="win-dot"></div>
+      <h2 id="win-title">Player 1 wins!</h2>
+      <button id="play-again-btn" class="primary-btn">New Game</button>
+    </div>
+  </section>
+
+  <script src="js/gameLogic.js?v=46"></script>
+  <script src="js/ai/encode.js?v=46"></script>
+  <script src="js/ai/network.js?v=46"></script>
+  <script src="js/ai/mcts.js?v=46"></script>
+  <script src="js/ai/weights.js?v=46"></script>
+  <script src="js/ui.js?v=46"></script>
+
+  <!-- TEST-ONLY automation harness, appended for this run - not part of the
+       shipped page. Covers the policy heatmap: off by default, toggling it
+       on shades every LEGAL cell by the network's own raw prior (no search)
+       with the strongest candidate normalized to full strength, toggling it
+       off clears every cell, and it never appears while browsing move
+       history (a browsed frame has no mover/hasMoved bookkeeping to encode). -->
+  <script>
+    (function () {
+      'use strict';
+      var errors = [];
+      window.onerror = function (msg, src, line, col, err) {
+        errors.push(String(msg) + ' @' + line + ':' + col);
+        return false;
+      };
+
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      function heatmapCells() {
+        return Array.prototype.slice.call(document.querySelectorAll('.cell.heatmap-cell'));
+      }
+
+      try {
+        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+
+        document.getElementById('start-game-btn').click(); // default 2p human-vs-human
+
+        setTimeout(function () {
+          var offCheck = { ok: heatmapCells().length === 0 };
+          if (!offCheck.ok) offCheck.reason = 'expected no heatmap cells before toggling on, got ' + heatmapCells().length;
+
+          var toggle = document.getElementById('policy-heatmap-toggle-input');
+          if (!toggle) return fail('policy heatmap toggle checkbox not found');
+          toggle.checked = true;
+          toggle.dispatchEvent(new Event('change'));
+
+          var cells = heatmapCells();
+          var onCheck = { ok: true };
+          if (cells.length === 0) {
+            onCheck = { ok: false, reason: 'expected at least one shaded cell after toggling on (opening move: every empty cell is legal)' };
+          } else {
+            var alphas = cells.map(function (el) { return parseFloat(el.style.getPropertyValue('--heatmap-alpha')); });
+            var maxAlpha = Math.max.apply(null, alphas);
+            if (maxAlpha < 0.999) {
+              onCheck = { ok: false, reason: 'expected the strongest candidate normalized to alpha 1.0, got max=' + maxAlpha };
+            } else if (alphas.some(function (a) { return a < 0 || a > 1 || isNaN(a); })) {
+              onCheck = { ok: false, reason: 'alpha values out of [0,1] range: ' + JSON.stringify(alphas) };
+            }
+          }
+
+          // Move history browsing must clear the heatmap (no encodable state
+          // for an arbitrary past frame) - simulate by placing a move, then
+          // stepping back with the arrow key.
+          document.querySelector('.cell[data-row="3"][data-col="3"]').click();
+
+          setTimeout(function () {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+            var duringBrowseCheck = { ok: heatmapCells().length === 0 };
+            if (!duringBrowseCheck.ok) duringBrowseCheck.reason = 'expected heatmap cleared while browsing history, got ' + heatmapCells().length + ' shaded cells';
+
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })); // back to live
+            var backToLiveCheck = { ok: heatmapCells().length > 0 };
+            if (!backToLiveCheck.ok) backToLiveCheck.reason = 'expected heatmap to reappear back at the live position';
+
+            toggle.checked = false;
+            toggle.dispatchEvent(new Event('change'));
+            var clearedCheck = { ok: heatmapCells().length === 0 };
+            if (!clearedCheck.ok) clearedCheck.reason = 'expected no heatmap cells after toggling off, got ' + heatmapCells().length;
+
+            report({
+              ok: errors.length === 0 && offCheck.ok && onCheck.ok && duringBrowseCheck.ok && backToLiveCheck.ok && clearedCheck.ok,
+              errors: errors,
+              offCheck: offCheck,
+              onCheck: onCheck,
+              duringBrowseCheck: duringBrowseCheck,
+              backToLiveCheck: backToLiveCheck,
+              clearedCheck: clearedCheck
+            });
+          }, 100);
+        }, 100);
+      } catch (e) {
+        fail('exception in test driver: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>
