@@ -544,7 +544,11 @@ body {
     flex-shrink: 0;
   }
   .move-history-list {
-    max-height: none;
+    /* Bug fix: this was "none" - on a long game the list grew without
+       bound and kept pushing the whole page taller, so the page scrolled
+       down every time a move was played. Cap it and scroll internally
+       instead, viewport-relative so it doesn't clip on shorter windows. */
+    max-height: calc(100vh - 200px);
   }
 }
 

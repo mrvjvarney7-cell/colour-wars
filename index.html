@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=47">
+<link rel="stylesheet" href="style.css?v=48">
 </head>
 <body>
 
@@ -36,7 +36,7 @@
         <div id="player-list" class="player-list"></div>
         <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
           <input type="checkbox" id="ai-insight-toggle-input" checked>
-          Show AI's win chance &amp; considered moves
+          Show AI thinking status, win chance &amp; considered moves
         </label>
       </div>
 
@@ -142,6 +142,7 @@
             <span id="puzzle-feedback" class="ai-insight hidden"></span>
           </div>
           <button id="share-btn" class="icon-btn" aria-label="Copy a link to this position" title="Share this position">Share</button>
+          <button id="home-btn" class="icon-btn" aria-label="Back to home" title="Back to home">Home</button>
           <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
         </header>
 
@@ -190,11 +191,11 @@
     </div>
   </section>
 
-  <script src="js/gameLogic.js?v=47"></script>
-  <script src="js/ai/encode.js?v=47"></script>
-  <script src="js/ai/network.js?v=47"></script>
-  <script src="js/ai/mcts.js?v=47"></script>
-  <script src="js/ai/weights.js?v=47"></script>
-  <script src="js/ui.js?v=47"></script>
+  <script src="js/gameLogic.js?v=48"></script>
+  <script src="js/ai/encode.js?v=48"></script>
+  <script src="js/ai/network.js?v=48"></script>
+  <script src="js/ai/mcts.js?v=48"></script>
+  <script src="js/ai/weights.js?v=48"></script>
+  <script src="js/ui.js?v=48"></script>
 </body>
 </html>

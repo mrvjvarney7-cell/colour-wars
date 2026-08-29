@@ -73,9 +73,11 @@
   var aiInsightToggleInputEl = document.getElementById('ai-insight-toggle-input');
 
   // Checked by default (matches the feature's original always-on behaviour);
-  // unchecking skips both the win%/considered-moves display AND the pause
-  // that exists purely so there's time to read it, so turning this off also
-  // makes AI turns noticeably faster.
+  // unchecking skips the win%/considered-moves display, the pause that
+  // exists purely so there's time to read it (so turning this off also
+  // makes AI turns noticeably faster), AND the "AI is thinking..." spinner
+  // itself - there was no separate control for that, and it's the same
+  // "insight into what the AI is doing" surface, so one checkbox covers both.
   function showAiInsight() {
     return !!(aiInsightToggleInputEl && aiInsightToggleInputEl.checked);
   }
@@ -104,6 +106,7 @@
   var fxLayerEl = document.getElementById('fx-layer');
   var boardWrapEl = document.querySelector('.board-wrap');
   var newGameBtn = document.getElementById('new-game-btn');
+  var homeBtn = document.getElementById('home-btn');
   var shareBtn = document.getElementById('share-btn');
   var exportGameBtn = document.getElementById('export-game-btn');
   var importGameBtn = document.getElementById('import-game-btn');
@@ -1236,7 +1239,7 @@
   // itself out automatically until it's the human's turn again.
   function maybePlayAiTurn(epoch) {
     if (!isAiTurn() || state.gameOver) return;
-    aiThinkingEl.classList.remove('hidden');
+    if (showAiInsight()) aiThinkingEl.classList.remove('hidden');
     setTimeout(function () {
       if (epoch !== gameEpoch) return; // game was reset while we were waiting to start
       var root = MCTS.runMcts(state, state.players[state.currentPlayerIndex].aiWeights, AI_SIMULATIONS);
@@ -1761,6 +1764,7 @@
 
   startGameBtn.addEventListener('click', startGame);
   newGameBtn.addEventListener('click', backToSetup);
+  if (homeBtn) homeBtn.addEventListener('click', backToSetup);
   playAgainBtn.addEventListener('click', backToSetup);
   // Guarded the same way as other optional elements throughout this file -
   // a stale cached copy of index.html from before these buttons existed

@@ -118,6 +118,7 @@
 
         var insightWasShownWhileOff = false;
         var badgeWasShownWhileOff = false;
+        var thinkingWasShownWhileOff = false;
         var pollCount = 0;
         var maxPolls = 400; // 400 * 150ms = 60s ceiling
 
@@ -129,15 +130,18 @@
 
           var thinkingEl = document.getElementById('ai-thinking');
           var stillThinking = !thinkingEl.classList.contains('hidden');
+          if (stillThinking) thinkingWasShownWhileOff = true;
           var owned = document.querySelectorAll('.cell.owned').length;
 
           if (!stillThinking && owned >= 2) {
             clearInterval(poll);
             report({
-              ok: errors.length === 0 && !insightWasShownWhileOff && !badgeWasShownWhileOff && owned === 2,
+              ok: errors.length === 0 && !insightWasShownWhileOff && !badgeWasShownWhileOff &&
+                  !thinkingWasShownWhileOff && owned === 2,
               errors: errors,
               insightWasShownWhileOff: insightWasShownWhileOff,
               badgeWasShownWhileOff: badgeWasShownWhileOff,
+              thinkingWasShownWhileOff: thinkingWasShownWhileOff,
               ownedCellCount: owned,
               turnLabel: document.getElementById('turn-label').textContent
             });
