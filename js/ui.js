@@ -92,10 +92,11 @@
       // Guarded: older browser-test fixtures are static copies of markup
       // from before history/rules screens existed, so they don't have every
       // element this map lists - same reason every other optional element
-      // in this file (aiInsightToggleEl, openPuzzleBtn, etc.) is guarded.
+      // in this file (aiInsightToggleEl, reviewGameBtn, etc.) is guarded.
       if (screensByName[key]) screensByName[key].classList.toggle('hidden', key !== name);
     });
     if (winScreen) winScreen.classList.add('hidden');
+    renderNav(); // keeps the active nav-item highlight and Share/Export's enabled state current on every transition
   }
 
   // Every screen has a public route name distinct from its internal key -
@@ -144,6 +145,233 @@
     applyScreen(name);
   });
 
+  // ---------- Navigation (drawer / sidebar) ----------
+  // ONE list, rendered into the ONE #nav-list element that exists in the
+  // DOM - it's presented as a slide-out drawer on mobile or a persistent
+  // sidebar on desktop purely via CSS (see style.css's 860px breakpoint),
+  // never as two separately-maintained element trees, so there is no way
+  // for the two presentations to disagree about what's in the list.
+  //
+  // `action` is a real function reference (not a screen name routed through
+  // a generic showScreen() call) so each item can reuse whatever its
+  // existing open*() function already does beyond a bare screen swap -
+  // openHistory() re-renders the list first, backToSetup() resets
+  // animation/puzzle state, etc. `built: false` items have no action at
+  // all and render disabled - Analysis/Bots/Engine/Settings are still
+  // separate, not-yet-built steps of this same nav rework.
+  var NAV_ITEMS = [
+    { id: 'play', label: 'Play', built: true, action: function () { backToSetup(); } },
+    { id: 'puzzle', label: 'Puzzle', built: true, action: function () { openPuzzle(); } },
+    { id: 'analysis', label: 'Analysis', built: false },
+    { id: 'bots', label: 'Bots', built: false },
+    { id: 'games', label: 'Games', built: true, action: function () { openHistory(); } },
+    { id: 'rules', label: 'Rules', built: true, action: function () { openRules(); } },
+    { id: 'engine', label: 'Engine', built: false },
+    { id: 'settings', label: 'Settings', built: false }
+  ];
+
+  function currentScreenName() {
+    for (var key in screensByName) {
+      if (screensByName[key] && !screensByName[key].classList.contains('hidden')) return key;
+    }
+    return null;
+  }
+
+  // Which item (if any) reads as "you are here". Per-id rather than a
+  // generic screen-match for every item, because "puzzle" doesn't have a
+  // screen of its own to match against - it's a mode flag on top of
+  // 'game' - and forcing one abstraction to cover both cases would just
+  // recreate the two-sources-of-truth problem this rework exists to avoid.
+  function isNavItemActive(item) {
+    var current = currentScreenName();
+    if (item.id === 'play') return current === 'setup';
+    if (item.id === 'games') return current === 'history';
+    if (item.id === 'rules') return current === 'rules';
+    if (item.id === 'puzzle') return inPuzzleMode === true;
+    return false;
+  }
+
+  // True while there's a real, unfinished position on the board (a live
+  // game OR an in-progress puzzle) AND the board is what's actually
+  // showing - navigating to Rules/Games/etc from anywhere else can't lose
+  // anything, since the board isn't what's currently in view.
+  function isGameInProgress() {
+    return !!state && !state.gameOver && !!gameScreen && !gameScreen.classList.contains('hidden');
+  }
+
+  function activateNavItem(item) {
+    if (!item.built) return;
+    if (isGameInProgress() && !window.confirm('You have a game in progress - leave it?')) return;
+    item.action();
+    closeDrawer(); // no-op when not open (desktop, or already closed)
+  }
+
+  var navListEl = document.getElementById('nav-list');
+
+  function renderNav() {
+    if (navListEl) {
+      navListEl.innerHTML = '';
+      NAV_ITEMS.forEach(function (item) {
+        if (item.id === 'puzzle' && puzzles.length === 0) return; // hidden entirely, not just disabled
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nav-item';
+        if (!item.built) {
+          btn.className += ' nav-item-disabled';
+          btn.disabled = true;
+          btn.textContent = item.label;
+          var soon = document.createElement('span');
+          soon.className = 'nav-item-soon';
+          soon.textContent = 'Soon';
+          btn.appendChild(soon);
+        } else {
+          btn.textContent = item.label;
+          if (isNavItemActive(item)) {
+            btn.className += ' active';
+            btn.setAttribute('aria-current', 'page');
+          }
+          btn.addEventListener('click', function () { activateNavItem(item); });
+        }
+        navListEl.appendChild(btn);
+      });
+    }
+    // In-game actions: real, pre-existing buttons (not re-created here) -
+    // just kept enabled/disabled to match whether there's anything to
+    // share/export right now. Both already no-op safely if clicked with no
+    // state (see shareCurrentPosition/exportCurrentGame), so this is a
+    // usability nicety, not a correctness requirement.
+    if (shareBtn) shareBtn.disabled = !state;
+    if (exportGameBtn) exportGameBtn.disabled = !state || !gameStartCwn;
+  }
+
+  // ---------- Drawer (mobile) / sidebar (desktop) chrome ----------
+  var navPanelEl = document.getElementById('nav-panel');
+  var navScrimEl = document.getElementById('nav-scrim');
+  var hamburgerBtn = document.getElementById('hamburger-btn');
+  var sidebarCollapseBtn = document.getElementById('sidebar-collapse-btn');
+  var topbarLogoLink = document.getElementById('topbar-logo-link');
+  var navLogoLink = document.getElementById('nav-logo-link');
+  var isDrawerOpen = false;
+  var drawerSwipeStartX = null;
+  var drawerSwipeStartY = null;
+
+  function isMobileNavMode() {
+    return !!(window.matchMedia && window.matchMedia('(max-width: 859px)').matches);
+  }
+
+  function trapDrawerFocus(e) {
+    if (!navPanelEl) return;
+    var focusable = navPanelEl.querySelectorAll('button:not([disabled]), a[href]');
+    if (focusable.length === 0) return;
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
+  function onDrawerKeydown(e) {
+    if (e.key === 'Escape') { closeDrawer(); return; }
+    if (e.key === 'Tab') trapDrawerFocus(e);
+  }
+
+  function openDrawer() {
+    if (!navPanelEl || isDrawerOpen || !isMobileNavMode()) return;
+    isDrawerOpen = true;
+    navPanelEl.classList.add('open');
+    navPanelEl.setAttribute('role', 'dialog');
+    navPanelEl.setAttribute('aria-modal', 'true');
+    if (navScrimEl) navScrimEl.classList.remove('hidden');
+    document.body.classList.add('nav-open');
+    if (hamburgerBtn) hamburgerBtn.setAttribute('aria-expanded', 'true');
+    navPanelEl.focus();
+    document.addEventListener('keydown', onDrawerKeydown);
+  }
+
+  function closeDrawer() {
+    if (!isDrawerOpen) return;
+    isDrawerOpen = false;
+    if (navPanelEl) {
+      navPanelEl.classList.remove('open');
+      navPanelEl.removeAttribute('role');
+      navPanelEl.removeAttribute('aria-modal');
+    }
+    if (navScrimEl) navScrimEl.classList.add('hidden');
+    document.body.classList.remove('nav-open');
+    document.removeEventListener('keydown', onDrawerKeydown);
+    if (hamburgerBtn) {
+      hamburgerBtn.setAttribute('aria-expanded', 'false');
+      hamburgerBtn.focus();
+    }
+  }
+
+  if (hamburgerBtn) {
+    hamburgerBtn.addEventListener('click', function () {
+      if (isDrawerOpen) closeDrawer(); else openDrawer();
+    });
+  }
+  if (navScrimEl) navScrimEl.addEventListener('click', closeDrawer);
+
+  // Swipe-left-to-close - a plain, single-touch horizontal gesture check,
+  // not a full gesture library: mostly-horizontal, mostly-leftward, past a
+  // small threshold so an incidental brush doesn't close it.
+  if (navPanelEl) {
+    navPanelEl.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      drawerSwipeStartX = e.touches[0].clientX;
+      drawerSwipeStartY = e.touches[0].clientY;
+    }, { passive: true });
+    navPanelEl.addEventListener('touchend', function (e) {
+      if (drawerSwipeStartX === null) return;
+      var touch = e.changedTouches[0];
+      var dx = touch.clientX - drawerSwipeStartX;
+      var dy = touch.clientY - drawerSwipeStartY;
+      drawerSwipeStartX = null;
+      drawerSwipeStartY = null;
+      if (dx < -50 && Math.abs(dx) > Math.abs(dy) * 1.5) closeDrawer();
+    }, { passive: true });
+  }
+
+  // The logo doubles as "Home" - there's no dedicated Home screen yet (see
+  // the nav rework's Home-vs-Play step, not built yet), so for now it
+  // lands on the same place "Play" does. Whichever logo is actually
+  // visible (topbar on mobile, sidebar on desktop) navigates the same way;
+  // href="#/play" is there as a plain-HTML fallback (e.g. no-JS, or a
+  // right-click "open in new tab") and the click handler still runs the
+  // real confirm-gated navigation on top of it.
+  function goHome(e) {
+    e.preventDefault();
+    activateNavItem({ id: 'play', built: true, action: function () { backToSetup(); } });
+  }
+  if (topbarLogoLink) topbarLogoLink.addEventListener('click', goHome);
+  if (navLogoLink) navLogoLink.addEventListener('click', goHome);
+
+  // Desktop sidebar collapse - persisted alongside the theme preference
+  // (see THEME_STORAGE_KEY above) so it survives a reload the same way.
+  var SIDEBAR_COLLAPSED_KEY = 'colourwars-sidebar-collapsed';
+  function getStoredSidebarCollapsed() {
+    try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'; } catch (e) { return false; }
+  }
+  function setStoredSidebarCollapsed(collapsed) {
+    try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? 'true' : 'false'); } catch (e) { /* private mode etc. */ }
+  }
+  function applySidebarCollapsed(collapsed) {
+    if (navPanelEl) navPanelEl.classList.toggle('collapsed', collapsed);
+    if (sidebarCollapseBtn) sidebarCollapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  }
+  applySidebarCollapsed(getStoredSidebarCollapsed());
+  if (sidebarCollapseBtn) {
+    sidebarCollapseBtn.addEventListener('click', function () {
+      var collapsed = !navPanelEl.classList.contains('collapsed');
+      applySidebarCollapsed(collapsed);
+      setStoredSidebarCollapsed(collapsed);
+    });
+  }
+
   var aiInsightToggleEl = document.getElementById('ai-insight-toggle');
   var aiInsightToggleInputEl = document.getElementById('ai-insight-toggle-input');
 
@@ -180,8 +408,6 @@
   var boardEl = document.getElementById('board');
   var fxLayerEl = document.getElementById('fx-layer');
   var boardWrapEl = document.querySelector('.board-wrap');
-  var newGameBtn = document.getElementById('new-game-btn');
-  var homeBtn = document.getElementById('home-btn');
   var shareBtn = document.getElementById('share-btn');
   var exportGameBtn = document.getElementById('export-game-btn');
   var importGameBtn = document.getElementById('import-game-btn');
@@ -190,16 +416,13 @@
   var winTitleEl = document.getElementById('win-title');
   var playAgainBtn = document.getElementById('play-again-btn');
 
-  var openHistoryBtn = document.getElementById('open-history-btn');
   var backFromHistoryBtn = document.getElementById('back-from-history-btn');
   var clearHistoryBtn = document.getElementById('clear-history-btn');
   var historyListEl = document.getElementById('history-list');
   var historyStatsPanelEl = document.getElementById('history-stats-panel');
 
-  var openRulesBtn = document.getElementById('open-rules-btn');
   var backFromRulesBtn = document.getElementById('back-from-rules-btn');
 
-  var openPuzzleBtn = document.getElementById('open-puzzle-btn');
   var puzzleFeedbackEl = document.getElementById('puzzle-feedback');
 
   var moveHistoryListEl = document.getElementById('move-history-list');
@@ -1237,6 +1460,11 @@
     var epoch = gameEpoch;
 
     animating = true;
+    // Suppresses the nav scrim's backdrop-filter blur for the duration of
+    // this cascade (see style.css) - blurring a cell mid-explosion is
+    // visibly janky, so the drawer/sidebar's scrim falls back to its flat
+    // background instead if it's open (or opened) while this is true.
+    document.body.classList.add('is-animating');
     // Show the dot(s) landing on the tapped cell immediately, before any explosion
     // waves animate. Skipped when the placement detonates straight away, so the
     // cell is never painted resting above its critical mass.
@@ -1263,6 +1491,7 @@
       renderPlayersStrip();
       renderHistoryFrame();
       animating = false;
+      document.body.classList.remove('is-animating');
       if (state.gameOver) {
         recordFinishedGame();
         showWinScreen();
@@ -1365,6 +1594,7 @@
   function resetAnimationState() {
     gameEpoch++;
     animating = false;
+    document.body.classList.remove('is-animating');
     fxLayerEl.innerHTML = '';
     aiThinkingEl.classList.add('hidden');
     clearAiInsight();
@@ -1664,9 +1894,9 @@
     .then(function (res) { return res.ok ? res.json() : []; })
     .then(function (list) {
       puzzles = Array.isArray(list) ? list : [];
-      if (openPuzzleBtn) openPuzzleBtn.classList.toggle('hidden', puzzles.length === 0);
+      renderNav(); // Puzzle nav item is entirely absent while puzzles.length === 0
     })
-    .catch(function () { /* no puzzles yet / fetch blocked - button stays hidden */ });
+    .catch(function () { /* no puzzles yet / fetch blocked - nav item stays absent */ });
 
   // Deterministic by UTC calendar date - same puzzle for everyone on the
   // same day, cycling through the bank once it's been exhausted (the bank
@@ -1847,8 +2077,6 @@
   }
 
   startGameBtn.addEventListener('click', startGame);
-  newGameBtn.addEventListener('click', backToSetup);
-  if (homeBtn) homeBtn.addEventListener('click', backToSetup);
   playAgainBtn.addEventListener('click', backToSetup);
   // Guarded the same way as other optional elements throughout this file -
   // a stale cached copy of index.html from before these buttons existed
@@ -1856,10 +2084,7 @@
   if (shareBtn) shareBtn.addEventListener('click', shareCurrentPosition);
   if (exportGameBtn) exportGameBtn.addEventListener('click', exportCurrentGame);
   if (importGameBtn) importGameBtn.addEventListener('click', importGame);
-  if (openHistoryBtn) openHistoryBtn.addEventListener('click', openHistory);
   if (backFromHistoryBtn) backFromHistoryBtn.addEventListener('click', closeHistory);
-  if (openRulesBtn) openRulesBtn.addEventListener('click', openRules);
-  if (openPuzzleBtn) openPuzzleBtn.addEventListener('click', openPuzzle);
   if (backFromRulesBtn) backFromRulesBtn.addEventListener('click', closeRules);
   if (reviewGameBtn) {
     reviewGameBtn.addEventListener('click', function () {
@@ -1921,6 +2146,12 @@
     if (initialScreen === 'history') { renderHistoryScreen(); applyScreen('history'); }
     else if (initialScreen === 'rules') applyScreen('rules');
   }
+
+  // Every branch above except 'history'/'rules' leaves applyScreen() (and
+  // so renderNav()) never having run at all on a plain load - without this,
+  // #nav-list would sit empty until the next real transition or the
+  // js/puzzles.json fetch happens to resolve.
+  renderNav();
 
   renderPlayerCountButtons();
   renderPlayerList();

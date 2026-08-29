@@ -272,6 +272,11 @@
   <script src="js/ai/weights.js?v=53"></script>
   <script src="js/ui.js?v=53"></script>
 <script>
+    // Covers the drawer/sidebar shell itself (open/close mechanics, focus
+    // handling, gesture, and the mid-game confirm gate) - the OTHER nav
+    // tests (routing, rules, history, puzzle, cwn_share) incidentally use
+    // the drawer as a means to reach a screen, but none of them actually
+    // exercise its own behavior, which is what this covers.
     (function () {
       'use strict';
       var errors = [];
@@ -280,74 +285,150 @@
         return false;
       };
 
-      function report(obj) {
-        document.title = 'RESULT:' + JSON.stringify(obj);
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
+
+      function navItemByLabel(label) {
+        var buttons = document.querySelectorAll('#nav-list .nav-item');
+        for (var i = 0; i < buttons.length; i++) {
+          if (buttons[i].textContent.trim().indexOf(label) === 0) return buttons[i];
+        }
+        return null;
       }
 
-      function fail(reason) {
-        report({ ok: false, reason: reason, errors: errors });
+      function dispatchTouch(el, type, x, y) {
+        var touch = { clientX: x, clientY: y, identifier: 0, target: el };
+        var ev;
+        try {
+          ev = new TouchEvent(type, { touches: type === 'touchend' ? [] : [touch], changedTouches: [touch], bubbles: true, cancelable: true });
+        } catch (e) {
+          // Some engines don't support the TouchEvent constructor directly -
+          // fall back to a plain Event carrying the same shape ui.js reads.
+          ev = new Event(type, { bubbles: true, cancelable: true });
+          ev.touches = type === 'touchend' ? [] : [touch];
+          ev.changedTouches = [touch];
+        }
+        el.dispatchEvent(ev);
       }
 
-      try {
-        var btn = document.getElementById('theme-toggle-btn');
-        if (!btn) return fail('theme toggle button not found');
+      setTimeout(function () {
+        try {
+          var hamburger = document.getElementById('hamburger-btn');
+          var navPanel = document.getElementById('nav-panel');
+          var navScrim = document.getElementById('nav-scrim');
+          var board = document.getElementById('board');
 
-        var initialTheme = document.documentElement.getAttribute('data-theme');
-        var initialBg = getComputedStyle(document.body).backgroundColor;
-        var initialLabel = btn.textContent.trim();
+          // ---- disabled ("Soon") items ----
+          var analysisItem = navItemByLabel('Analysis');
+          var disabledCheck = {
+            ok: !!analysisItem && analysisItem.disabled === true && analysisItem.classList.contains('nav-item-disabled')
+          };
 
-        var defaultCheck = { ok: true };
-        if (initialTheme !== 'dark') {
-          defaultCheck = { ok: false, reason: 'expected dark by default (no OS/localStorage signal), got "' + initialTheme + '"' };
-        } else if (initialLabel !== 'Light mode') {
-          defaultCheck = { ok: false, reason: 'expected button to read "Light mode" while dark, got "' + initialLabel + '"' };
+          // ---- open via hamburger: dialog semantics, focus, scrim, scroll lock ----
+          hamburger.click();
+          var afterOpen = {
+            open: navPanel.classList.contains('open'),
+            scrimVisible: !navScrim.classList.contains('hidden'),
+            bodyLocked: document.body.classList.contains('nav-open'),
+            role: navPanel.getAttribute('role'),
+            ariaModal: navPanel.getAttribute('aria-modal'),
+            focusedPanel: document.activeElement === navPanel,
+            hamburgerExpanded: hamburger.getAttribute('aria-expanded')
+          };
+          var openCheck = {
+            ok: afterOpen.open && afterOpen.scrimVisible && afterOpen.bodyLocked &&
+                afterOpen.role === 'dialog' && afterOpen.ariaModal === 'true' &&
+                afterOpen.focusedPanel && afterOpen.hamburgerExpanded === 'true'
+          };
+
+          // ---- scrim physically blocks the board underneath it ----
+          var boardRect = board.getBoundingClientRect();
+          var midX = boardRect.left + boardRect.width / 2;
+          var midY = boardRect.top + boardRect.height / 2;
+          var hit = document.elementFromPoint(midX, midY);
+          var scrimBlocksBoard = { ok: hit === navScrim };
+
+          // ---- focus trap: Tab from the last focusable item wraps to the first ----
+          var focusable = navPanel.querySelectorAll('button:not([disabled]), a[href]');
+          var first = focusable[0];
+          var last = focusable[focusable.length - 1];
+          last.focus();
+          var tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+          document.dispatchEvent(tabEvent);
+          var focusTrapCheck = { ok: document.activeElement === first };
+
+          // ---- Escape closes it and returns focus to the hamburger ----
+          var escEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+          document.dispatchEvent(escEvent);
+          var afterEscape = {
+            open: navPanel.classList.contains('open'),
+            scrimHidden: navScrim.classList.contains('hidden'),
+            bodyUnlocked: !document.body.classList.contains('nav-open'),
+            focusedHamburger: document.activeElement === hamburger,
+            role: navPanel.getAttribute('role')
+          };
+          var escapeCheck = {
+            ok: !afterEscape.open && afterEscape.scrimHidden && afterEscape.bodyUnlocked &&
+                afterEscape.focusedHamburger && afterEscape.role === null
+          };
+
+          // ---- scrim click closes it ----
+          hamburger.click();
+          var openedForScrim = navPanel.classList.contains('open');
+          navScrim.click();
+          var scrimCloseCheck = { ok: openedForScrim && !navPanel.classList.contains('open') };
+
+          // ---- swipe left closes it; a mostly-vertical drag does not ----
+          hamburger.click();
+          dispatchTouch(navPanel, 'touchstart', 300, 200);
+          dispatchTouch(navPanel, 'touchend', 295, 260); // mostly vertical, should NOT close
+          var afterVerticalDrag = { stillOpen: navPanel.classList.contains('open') };
+          dispatchTouch(navPanel, 'touchstart', 300, 200);
+          dispatchTouch(navPanel, 'touchend', 190, 205); // clearly horizontal/leftward, should close
+          var swipeCheck = { ok: afterVerticalDrag.stillOpen && !navPanel.classList.contains('open') };
+
+          // ---- mid-game confirm gate: declining a leave-prompt keeps you on the board ----
+          document.getElementById('start-game-btn').click();
+          document.querySelector('.cell[data-row="3"][data-col="3"]').click();
+          setTimeout(function () {
+            var gameVisibleBefore = !document.getElementById('game-screen').classList.contains('hidden');
+
+            window.confirm = function () { return false; };
+            hamburger.click();
+            var playItem = navItemByLabel('Play');
+            playItem.click();
+            var declinedCheck = {
+              ok: gameVisibleBefore && !document.getElementById('game-screen').classList.contains('hidden')
+            };
+
+            window.confirm = function () { return true; };
+            hamburger.click();
+            navItemByLabel('Play').click();
+            var acceptedCheck = {
+              ok: document.getElementById('setup-screen') && !document.getElementById('setup-screen').classList.contains('hidden')
+            };
+
+            report({
+              ok: errors.length === 0 && disabledCheck.ok && openCheck.ok && scrimBlocksBoard.ok &&
+                  focusTrapCheck.ok && escapeCheck.ok && scrimCloseCheck.ok && swipeCheck.ok &&
+                  declinedCheck.ok && acceptedCheck.ok,
+              errors: errors,
+              disabledCheck: disabledCheck,
+              openCheck: openCheck,
+              afterOpen: afterOpen,
+              scrimBlocksBoard: scrimBlocksBoard,
+              focusTrapCheck: focusTrapCheck,
+              escapeCheck: escapeCheck,
+              scrimCloseCheck: scrimCloseCheck,
+              swipeCheck: swipeCheck,
+              declinedCheck: declinedCheck,
+              acceptedCheck: acceptedCheck
+            });
+          }, 700);
+        } catch (e) {
+          fail('exception in test driver: ' + e.message);
         }
-
-        btn.click(); // dark -> light
-
-        var afterFirstClickTheme = document.documentElement.getAttribute('data-theme');
-        var afterFirstClickBg = getComputedStyle(document.body).backgroundColor;
-        var afterFirstClickLabel = btn.textContent.trim();
-        var afterFirstClickAria = btn.getAttribute('aria-label');
-        var stored = null;
-        try { stored = localStorage.getItem('colourwars-theme'); } catch (e) { /* ignore */ }
-
-        var switchCheck = { ok: true };
-        if (afterFirstClickTheme !== 'light') {
-          switchCheck = { ok: false, reason: 'expected data-theme="light" after one click, got "' + afterFirstClickTheme + '"' };
-        } else if (afterFirstClickBg === initialBg) {
-          switchCheck = { ok: false, reason: 'background colour did not actually change: still "' + afterFirstClickBg + '"' };
-        } else if (afterFirstClickLabel !== 'Dark mode') {
-          switchCheck = { ok: false, reason: 'expected button to read "Dark mode" while light, got "' + afterFirstClickLabel + '"' };
-        } else if (afterFirstClickAria.indexOf('dark') === -1) {
-          switchCheck = { ok: false, reason: 'aria-label should mention switching to dark: "' + afterFirstClickAria + '"' };
-        } else if (stored !== 'light') {
-          switchCheck = { ok: false, reason: 'expected localStorage to persist "light", got ' + JSON.stringify(stored) };
-        }
-
-        btn.click(); // light -> dark, back to start
-
-        var afterSecondClickTheme = document.documentElement.getAttribute('data-theme');
-        var afterSecondClickBg = getComputedStyle(document.body).backgroundColor;
-        var roundTripCheck = { ok: true };
-        if (afterSecondClickTheme !== 'dark') {
-          roundTripCheck = { ok: false, reason: 'expected back to dark after a second click, got "' + afterSecondClickTheme + '"' };
-        } else if (afterSecondClickBg !== initialBg) {
-          roundTripCheck = { ok: false, reason: 'background did not return to the original dark value' };
-        }
-
-        report({
-          ok: errors.length === 0 && defaultCheck.ok && switchCheck.ok && roundTripCheck.ok,
-          errors: errors,
-          defaultCheck: defaultCheck,
-          switchCheck: switchCheck,
-          roundTripCheck: roundTripCheck,
-          initialBg: initialBg,
-          afterFirstClickBg: afterFirstClickBg
-        });
-      } catch (e) {
-        fail('exception in test driver: ' + e.message);
-      }
+      }, 300);
     })();
   </script>
 </body>

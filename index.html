@@ -12,195 +12,264 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=51">
+<link rel="stylesheet" href="style.css?v=53">
 </head>
 <body>
 
-  <!-- Fixed outside the screens below so it stays reachable no matter which
-       one (setup/game/win) is currently showing. -->
-  <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-label="Switch to light theme">Light mode</button>
+  <!-- Scrim: dims/blurs the app while the drawer is open on mobile, closes
+       the drawer on tap, and - critically - physically sits above the
+       board so a tap meant for the scrim can never register as a board
+       move underneath it. Always paired with the drawer's own overlay
+       treatment; see style.css for why backdrop-filter alone isn't enough. -->
+  <div class="nav-scrim hidden" id="nav-scrim"></div>
 
-  <!-- Setup screen -->
-  <section id="setup-screen" class="screen">
-    <div class="setup-card">
-      <h1 class="title">Colour Wars</h1>
-      <p class="subtitle">Pass-and-play chain reaction strategy</p>
-
-      <div class="field">
-        <div class="field-label">Players</div>
-        <div id="player-count-buttons" class="segmented"></div>
-      </div>
-
-      <div class="field">
-        <div class="field-label">Colours &amp; opponents</div>
-        <div id="player-list" class="player-list"></div>
-        <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
-          <input type="checkbox" id="ai-insight-toggle-input" checked>
-          Show AI thinking status, win chance &amp; considered moves
-        </label>
-        <!-- Only shown once we know an elo_chain_reset actually happened
-             (see window.AI_VERSION.eloChainResetIteration) - explains why
-             the Elo next to some AI opponents jumps or reads "not
-             comparable" instead of being one continuous number. -->
-        <p class="elo-reset-note hidden" id="elo-reset-note"></p>
-      </div>
-
-      <div class="field">
-        <div class="field-label">Analysis</div>
-        <!-- Not gated behind any AI seat being in play - a neutral analysis
-             engine (the default bundled network), same idea as a chess
-             site's eval bar not caring which bot you're actually playing. -->
-        <label class="ai-insight-toggle" id="policy-heatmap-toggle">
-          <input type="checkbox" id="policy-heatmap-toggle-input">
-          Show policy heatmap
-        </label>
-      </div>
-
-      <button id="start-game-btn" class="primary-btn">Start Game</button>
-      <button id="open-history-btn" class="secondary-btn" type="button">Game History</button>
-      <button id="open-rules-btn" class="secondary-btn" type="button">How to Play</button>
-      <button id="open-puzzle-btn" class="secondary-btn hidden" type="button">Daily Puzzle</button>
-      <!-- Version label, not tied to the ?v= cache-buster number (that still
-           increments on every asset change; this only changes on an actual
-           versioned release). Also lets us confirm which build a device is
-           actually running, since mobile browsers cache aggressively. -->
-      <p class="build-tag">ColourWarsBeta1.0</p>
+  <!-- The ONE nav surface - presented as a sliding mobile drawer or a
+       persistent desktop sidebar purely via CSS (see style.css's 860px
+       breakpoint); js/ui.js renders #nav-list once from a single NAV_ITEMS
+       array, so the two presentations can never list different items or a
+       different order from each other. role/aria-modal are added and
+       removed by JS only while actually acting as a mobile dialog. -->
+  <nav class="nav-panel" id="nav-panel" aria-label="Navigation" tabindex="-1">
+    <div class="nav-panel-header">
+      <a class="nav-logo-link" id="nav-logo-link" href="#/play" aria-label="Colour Wars home">
+        <svg class="app-logo" viewBox="0 0 32 32" width="24" height="24" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="13" height="13" rx="3" fill="#2563eb"/>
+          <rect x="17" y="2" width="13" height="13" rx="3" fill="#16a34a"/>
+          <rect x="2" y="17" width="13" height="13" rx="3" fill="#f97316"/>
+          <rect x="17" y="17" width="13" height="13" rx="3" fill="#dc2626"/>
+          <circle cx="20.5" cy="20.5" r="1.6" fill="#fff"/>
+          <circle cx="26.5" cy="20.5" r="1.6" fill="#fff"/>
+          <circle cx="20.5" cy="26.5" r="1.6" fill="#fff"/>
+          <circle cx="26.5" cy="26.5" r="1.6" fill="#fff"/>
+        </svg>
+        <span class="nav-logo-title">Colour Wars</span>
+      </a>
+      <!-- Desktop-only (hidden on mobile via CSS) - collapses the sidebar
+           to a slim rail. State persisted in localStorage alongside the
+           theme preference (see js/ui.js). -->
+      <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" type="button" aria-label="Collapse sidebar" aria-expanded="true">&laquo;</button>
     </div>
-  </section>
 
-  <!-- Rules (T9) - the 3-dot opening and fixed critical mass are both
-       non-standard compared to classic Chain Reaction, and undiscoverable
-       without this. -->
-  <section id="rules-screen" class="screen hidden">
-    <div class="setup-card rules-card">
-      <h1 class="title">How to Play</h1>
+    <!-- Populated by renderNav() in js/ui.js - never hand-written here, so
+         there is exactly one place the item list/order can be defined. -->
+    <div class="nav-list" id="nav-list"></div>
 
-      <div class="rules-section">
-        <h2>The board</h2>
-        <p>7&times;7 grid. Players take turns placing dots on cells. Colours &amp; opponents are chosen on the setup screen - any mix of human and AI seats.</p>
-      </div>
+    <div class="nav-divider"></div>
 
-      <div class="rules-section">
-        <h2>Opening move</h2>
-        <p>Your very <b>first</b> move of the game may target any empty cell (or one you already own) and places <b>3 dots</b> at once, instead of the usual one. This is what gets games moving quickly on a 7&times;7 board - without it, the opening phase would take far longer to reach any real contact between players.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Later moves</h2>
-        <p>Every move after your opening must target a cell <b>you already own</b>, placing a single dot. You cannot place on an empty cell or an opponent's cell directly - the only way to gain new territory is by exploding into it.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Critical mass &amp; explosions</h2>
-        <p>Every cell explodes once it reaches <b>4 dots</b> - corners, edges and interior cells alike, regardless of how many neighbours they actually have. An exploding cell loses all 4 dots and sends one dot to each orthogonally adjacent cell (up to 4: up/down/left/right), capturing that cell for the exploding player's colour. A corner cell only has 2 neighbours and an edge cell only 3 - dots that would go to a neighbour that doesn't exist are simply lost.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Chain reactions</h2>
-        <p>If a cell gains a dot and that pushes it to 4 or more, it explodes too - on the very next wave, simultaneously with any other cell that also just reached critical mass. This can cascade through many cells in a single turn, flipping large sections of the board to one colour. The chain preview (hover a legal move on desktop, long-press on mobile) shows exactly which cells a candidate move would detonate before you commit to it.</p>
-      </div>
-
-      <div class="rules-section">
-        <h2>Elimination &amp; winning</h2>
-        <p>Once every player has made their opening move, any player reduced to zero cells is eliminated. The last player with any cells left wins. In a 3-4 player game, elimination can happen well before every other player has had many turns - a single well-placed chain can wipe someone out early.</p>
-      </div>
-
-      <button id="back-from-rules-btn" class="primary-btn" type="button">Back</button>
+    <!-- In-game actions - the same real buttons/ids that already existed
+         (moved here from the old header/move-history-panel, not
+         recreated), so their existing click handlers keep working
+         unchanged. Enabled/disabled state is kept current by renderNav(). -->
+    <div class="nav-actions" id="nav-actions">
+      <button id="share-btn" class="nav-action-btn" type="button" aria-label="Copy a link to this position" title="Share this position">Share</button>
+      <button id="export-game-btn" class="nav-action-btn" type="button" aria-label="Export this game">Export</button>
+      <button id="import-game-btn" class="nav-action-btn" type="button" aria-label="Import a game">Import</button>
+      <button id="theme-toggle-btn" class="nav-action-btn" type="button" aria-label="Switch to light theme">Light mode</button>
     </div>
-  </section>
 
-  <!-- Local game history (T7) - past games stored in localStorage, nothing
-       leaves the device. -->
-  <section id="history-screen" class="screen hidden">
-    <div class="setup-card">
-      <h1 class="title">Game History</h1>
-      <div class="field">
-        <div class="field-label">Stats</div>
-        <div class="stats-panel" id="history-stats-panel"></div>
-      </div>
-      <div class="field">
-        <div class="field-label">Past games</div>
-        <div class="history-list" id="history-list"></div>
-      </div>
-      <button id="clear-history-btn" class="secondary-btn" type="button">Clear History</button>
-      <button id="back-from-history-btn" class="primary-btn" type="button">Back</button>
-    </div>
-  </section>
+    <!-- Version label, not tied to the ?v= cache-buster number (that still
+         increments on every asset change; this only changes on an actual
+         versioned release). Also lets us confirm which build a device is
+         actually running, since mobile browsers cache aggressively. -->
+    <p class="build-tag">ColourWarsBeta1.0</p>
+  </nav>
 
-  <!-- Game screen -->
-  <section id="game-screen" class="screen hidden">
-    <div class="game-layout">
-      <div class="game-main">
-        <header class="turn-bar" id="turn-bar">
-          <div class="turn-indicator" id="turn-indicator">
-            <span class="turn-dot" id="turn-dot"></span>
-            <span id="turn-label">Player 1's turn</span>
-            <span id="ai-thinking" class="ai-thinking hidden">
-              <span class="ai-thinking-dot"></span>
-              <span class="ai-thinking-dot"></span>
-              <span class="ai-thinking-dot"></span>
-              AI is thinking&hellip;
-            </span>
-            <span id="ai-insight" class="ai-insight hidden"></span>
-            <!-- Daily puzzle (T10) feedback - "find the winning move" prompt
-                 and correct/incorrect result. Only shown in puzzle mode. -->
-            <span id="puzzle-feedback" class="ai-insight hidden"></span>
+  <div class="app-shell">
+    <!-- Mobile-only top bar (hidden at desktop widths, where the sidebar
+         above is always visible instead). Sticky, not fixed - see
+         style.css for why a fixed bar is the wrong choice on iOS Safari.
+         Deliberately does NOT include the turn indicator - that's game
+         state, not navigation, and stays inside the game screen itself. -->
+    <header class="topbar" id="topbar">
+      <button class="hamburger-btn" id="hamburger-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav-panel">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+      </button>
+      <a class="topbar-logo-link" id="topbar-logo-link" href="#/play" aria-label="Colour Wars home">
+        <svg class="app-logo" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="13" height="13" rx="3" fill="#2563eb"/>
+          <rect x="17" y="2" width="13" height="13" rx="3" fill="#16a34a"/>
+          <rect x="2" y="17" width="13" height="13" rx="3" fill="#f97316"/>
+          <rect x="17" y="17" width="13" height="13" rx="3" fill="#dc2626"/>
+          <circle cx="20.5" cy="20.5" r="1.6" fill="#fff"/>
+          <circle cx="26.5" cy="20.5" r="1.6" fill="#fff"/>
+          <circle cx="20.5" cy="26.5" r="1.6" fill="#fff"/>
+          <circle cx="26.5" cy="26.5" r="1.6" fill="#fff"/>
+        </svg>
+        <span class="topbar-title">Colour Wars</span>
+      </a>
+    </header>
+
+    <div class="app-main" id="app-main">
+      <!-- Setup screen (the "Play" nav item's destination) -->
+      <section id="setup-screen" class="screen">
+        <div class="setup-card">
+          <h1 class="title">Colour Wars</h1>
+          <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+          <div class="field">
+            <div class="field-label">Players</div>
+            <div id="player-count-buttons" class="segmented"></div>
           </div>
-          <button id="share-btn" class="icon-btn" aria-label="Copy a link to this position" title="Share this position">Share</button>
-          <button id="home-btn" class="icon-btn" aria-label="Back to home" title="Back to home">Home</button>
-          <button id="new-game-btn" class="icon-btn" aria-label="New game">New Game</button>
-        </header>
 
-        <div class="players-strip" id="players-strip"></div>
-        <div class="stats-panel" id="stats-panel"></div>
+          <div class="field">
+            <div class="field-label">Colours &amp; opponents</div>
+            <div id="player-list" class="player-list"></div>
+            <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
+              <input type="checkbox" id="ai-insight-toggle-input" checked>
+              Show AI thinking status, win chance &amp; considered moves
+            </label>
+            <!-- Only shown once we know an elo_chain_reset actually happened
+                 (see window.AI_VERSION.eloChainResetIteration) - explains why
+                 the Elo next to some AI opponents jumps or reads "not
+                 comparable" instead of being one continuous number. -->
+            <p class="elo-reset-note hidden" id="elo-reset-note"></p>
+          </div>
 
-        <div class="board-row">
-          <!-- Value head's win probability for the side to move, no search -
-               a neutral analysis engine (window.AI_WEIGHTS), same as the
-               policy heatmap above, not tied to any AI opponent's own
-               checkpoint. Hidden whenever there's nothing to show it for
-               (no game, game over, browsing move history). -->
-          <div class="eval-bar hidden" id="eval-bar" aria-hidden="true">
-            <span class="eval-bar-label" id="eval-bar-label"></span>
-            <div class="eval-bar-track">
-              <div class="eval-bar-fill" id="eval-bar-fill"></div>
+          <div class="field">
+            <div class="field-label">Analysis</div>
+            <!-- Not gated behind any AI seat being in play - a neutral analysis
+                 engine (the default bundled network), same idea as a chess
+                 site's eval bar not caring which bot you're actually playing. -->
+            <label class="ai-insight-toggle" id="policy-heatmap-toggle">
+              <input type="checkbox" id="policy-heatmap-toggle-input">
+              Show policy heatmap
+            </label>
+          </div>
+
+          <button id="start-game-btn" class="primary-btn">Start Game</button>
+        </div>
+      </section>
+
+      <!-- Rules (T9) - the 3-dot opening and fixed critical mass are both
+           non-standard compared to classic Chain Reaction, and undiscoverable
+           without this. -->
+      <section id="rules-screen" class="screen hidden">
+        <div class="setup-card rules-card">
+          <h1 class="title">How to Play</h1>
+
+          <div class="rules-section">
+            <h2>The board</h2>
+            <p>7&times;7 grid. Players take turns placing dots on cells. Colours &amp; opponents are chosen on the setup screen - any mix of human and AI seats.</p>
+          </div>
+
+          <div class="rules-section">
+            <h2>Opening move</h2>
+            <p>Your very <b>first</b> move of the game may target any empty cell (or one you already own) and places <b>3 dots</b> at once, instead of the usual one. This is what gets games moving quickly on a 7&times;7 board - without it, the opening phase would take far longer to reach any real contact between players.</p>
+          </div>
+
+          <div class="rules-section">
+            <h2>Later moves</h2>
+            <p>Every move after your opening must target a cell <b>you already own</b>, placing a single dot. You cannot place on an empty cell or an opponent's cell directly - the only way to gain new territory is by exploding into it.</p>
+          </div>
+
+          <div class="rules-section">
+            <h2>Critical mass &amp; explosions</h2>
+            <p>Every cell explodes once it reaches <b>4 dots</b> - corners, edges and interior cells alike, regardless of how many neighbours they actually have. An exploding cell loses all 4 dots and sends one dot to each orthogonally adjacent cell (up to 4: up/down/left/right), capturing that cell for the exploding player's colour. A corner cell only has 2 neighbours and an edge cell only 3 - dots that would go to a neighbour that doesn't exist are simply lost.</p>
+          </div>
+
+          <div class="rules-section">
+            <h2>Chain reactions</h2>
+            <p>If a cell gains a dot and that pushes it to 4 or more, it explodes too - on the very next wave, simultaneously with any other cell that also just reached critical mass. This can cascade through many cells in a single turn, flipping large sections of the board to one colour. The chain preview (hover a legal move on desktop, long-press on mobile) shows exactly which cells a candidate move would detonate before you commit to it.</p>
+          </div>
+
+          <div class="rules-section">
+            <h2>Elimination &amp; winning</h2>
+            <p>Once every player has made their opening move, any player reduced to zero cells is eliminated. The last player with any cells left wins. In a 3-4 player game, elimination can happen well before every other player has had many turns - a single well-placed chain can wipe someone out early.</p>
+          </div>
+
+          <button id="back-from-rules-btn" class="primary-btn" type="button">Back</button>
+        </div>
+      </section>
+
+      <!-- Local game history (T7) - past games stored in localStorage, nothing
+           leaves the device. -->
+      <section id="history-screen" class="screen hidden">
+        <div class="setup-card">
+          <h1 class="title">Game History</h1>
+          <div class="field">
+            <div class="field-label">Stats</div>
+            <div class="stats-panel" id="history-stats-panel"></div>
+          </div>
+          <div class="field">
+            <div class="field-label">Past games</div>
+            <div class="history-list" id="history-list"></div>
+          </div>
+          <button id="clear-history-btn" class="secondary-btn" type="button">Clear History</button>
+          <button id="back-from-history-btn" class="primary-btn" type="button">Back</button>
+        </div>
+      </section>
+
+      <!-- Game screen -->
+      <section id="game-screen" class="screen hidden">
+        <div class="game-layout">
+          <div class="game-main">
+            <header class="turn-bar" id="turn-bar">
+              <div class="turn-indicator" id="turn-indicator">
+                <span class="turn-dot" id="turn-dot"></span>
+                <span id="turn-label">Player 1's turn</span>
+                <span id="ai-thinking" class="ai-thinking hidden">
+                  <span class="ai-thinking-dot"></span>
+                  <span class="ai-thinking-dot"></span>
+                  <span class="ai-thinking-dot"></span>
+                  AI is thinking&hellip;
+                </span>
+                <span id="ai-insight" class="ai-insight hidden"></span>
+                <!-- Daily puzzle (T10) feedback - "find the winning move" prompt
+                     and correct/incorrect result. Only shown in puzzle mode. -->
+                <span id="puzzle-feedback" class="ai-insight hidden"></span>
+              </div>
+            </header>
+
+            <div class="players-strip" id="players-strip"></div>
+            <div class="stats-panel" id="stats-panel"></div>
+
+            <div class="board-row">
+              <!-- Value head's win probability for the side to move, no search -
+                   a neutral analysis engine (window.AI_WEIGHTS), same as the
+                   policy heatmap above, not tied to any AI opponent's own
+                   checkpoint. Hidden whenever there's nothing to show it for
+                   (no game, game over, browsing move history). -->
+              <div class="eval-bar hidden" id="eval-bar" aria-hidden="true">
+                <span class="eval-bar-label" id="eval-bar-label"></span>
+                <div class="eval-bar-track">
+                  <div class="eval-bar-fill" id="eval-bar-fill"></div>
+                </div>
+              </div>
+              <div class="board-wrap">
+                <div class="board" id="board"></div>
+                <div class="fx-layer" id="fx-layer"></div>
+              </div>
             </div>
           </div>
-          <div class="board-wrap">
-            <div class="board" id="board"></div>
-            <div class="fx-layer" id="fx-layer"></div>
-          </div>
+
+          <aside class="move-history-panel" id="move-history-panel">
+            <div class="move-history-header">
+              <span>Moves</span>
+            </div>
+            <div class="move-history-list" id="move-history-list"></div>
+          </aside>
         </div>
-      </div>
+      </section>
 
-      <aside class="move-history-panel" id="move-history-panel">
-        <div class="move-history-header">
-          <span>Moves</span>
-          <span class="move-history-actions">
-            <button id="export-game-btn" class="text-btn" type="button" aria-label="Export this game">Export</button>
-            <button id="import-game-btn" class="text-btn" type="button" aria-label="Import a game">Import</button>
-          </span>
+      <!-- Win overlay -->
+      <section id="win-screen" class="screen hidden overlay">
+        <div class="win-card">
+          <div class="win-dot" id="win-dot"></div>
+          <h2 id="win-title">Player 1 wins!</h2>
+          <button id="review-game-btn" class="secondary-btn" type="button">Review Game</button>
+          <button id="play-again-btn" class="primary-btn">New Game</button>
         </div>
-        <div class="move-history-list" id="move-history-list"></div>
-      </aside>
+      </section>
     </div>
-  </section>
+  </div>
 
-  <!-- Win overlay -->
-  <section id="win-screen" class="screen hidden overlay">
-    <div class="win-card">
-      <div class="win-dot" id="win-dot"></div>
-      <h2 id="win-title">Player 1 wins!</h2>
-      <button id="review-game-btn" class="secondary-btn" type="button">Review Game</button>
-      <button id="play-again-btn" class="primary-btn">New Game</button>
-    </div>
-  </section>
-
-  <script src="js/gameLogic.js?v=51"></script>
-  <script src="js/ai/encode.js?v=51"></script>
-  <script src="js/ai/network.js?v=51"></script>
-  <script src="js/ai/mcts.js?v=51"></script>
-  <script src="js/ai/weights.js?v=51"></script>
-  <script src="js/ui.js?v=51"></script>
+  <script src="js/gameLogic.js?v=53"></script>
+  <script src="js/ai/encode.js?v=53"></script>
+  <script src="js/ai/network.js?v=53"></script>
+  <script src="js/ai/mcts.js?v=53"></script>
+  <script src="js/ai/weights.js?v=53"></script>
+  <script src="js/ui.js?v=53"></script>
 </body>
 </html>
