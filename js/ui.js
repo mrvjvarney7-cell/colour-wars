@@ -162,7 +162,7 @@
   var NAV_ITEMS = [
     { id: 'play', label: 'Play', built: true, action: function () { backToSetup(); } },
     { id: 'puzzle', label: 'Puzzle', built: true, action: function () { openPuzzle(); } },
-    { id: 'analysis', label: 'Analysis', built: false },
+    { id: 'analysis', label: 'Analysis', built: true, action: function () { openAnalysis(); } },
     { id: 'bots', label: 'Bots', built: false },
     { id: 'games', label: 'Games', built: true, action: function () { openHistory(); } },
     { id: 'rules', label: 'Rules', built: true, action: function () { openRules(); } },
@@ -188,6 +188,7 @@
     if (item.id === 'games') return current === 'history';
     if (item.id === 'rules') return current === 'rules';
     if (item.id === 'puzzle') return inPuzzleMode === true;
+    if (item.id === 'analysis') return inAnalysisMode === true;
     return false;
   }
 
@@ -781,6 +782,14 @@
   // with the arrow keys or the move list, during which the board is
   // read-only and the live game keeps advancing untouched underneath.
   var boardHistory = [];
+  // Parallel to boardHistory (same length, same push points) but keeps the
+  // FULL GameState at each ply rather than just its board - a browsed
+  // frame from boardHistory alone has no mover/hasMoved bookkeeping to
+  // encode, so it can't be analysed. Only actually consumed by Analysis
+  // mode (see computeQuickAnalysis/renderAnalysis) - normal play/puzzle
+  // pay the (trivial - it's a reference, not a copy) cost of tracking it
+  // too, rather than branching the bookkeeping itself by mode.
+  var stateHistory = [];
   var moveList = [];
   var viewIndex = 0;
   // The CWN of whatever position this game actually began from - almost
@@ -991,14 +1000,19 @@
   // tied to whatever bot you chose to play against. Only covers the LIVE
   // position, not a browsed-history frame - boardHistory only stores board
   // snapshots, not the mover/hasMoved bookkeeping encodeState also needs.
-  function computeQuickAnalysis() {
-    if (!state || state.gameOver) return null;
-    var encoded = Encode.encodeState(state);
+  // targetState defaults to the live game, but Analysis mode passes a
+  // specific stateHistory[i] instead - a real GameState either way (the
+  // caller is responsible for that; see renderAnalysis).
+  function computeQuickAnalysis(targetState) {
+    targetState = targetState || state;
+    if (!targetState || targetState.gameOver) return null;
+    var encoded = Encode.encodeState(targetState);
     var out = NeuralNet.forward(encoded, window.AI_WEIGHTS);
-    var mover = state.currentPlayerIndex;
+    var mover = targetState.currentPlayerIndex;
     return {
       winProbability: (out.value[mover] + 1) / 2,
-      policy: MCTS.maskedPolicy(state, out.policyLogits)
+      policy: MCTS.maskedPolicy(targetState, out.policyLogits),
+      moverColor: playerColor(mover)
     };
   }
 
@@ -1045,18 +1059,23 @@
     evalBarEl.classList.remove('hidden');
     var pct = Math.round(analysis.winProbability * 100);
     evalBarFillEl.style.height = pct + '%';
-    evalBarFillEl.style.setProperty('--eval-bar-color', playerColor(state.currentPlayerIndex));
+    evalBarFillEl.style.setProperty('--eval-bar-color', analysis.moverColor);
     evalBarLabelEl.textContent = pct + '%';
   }
 
   // Single entry point: computes the (possibly expensive-ish, though this
   // network is tiny) forward pass ONCE and feeds both T1 (eval bar) and T3
   // (policy heatmap) from it, rather than each recomputing independently.
-  // null whenever there's nothing sensible to analyse - no game, game over,
-  // or browsing move history (a browsed frame has no mover/hasMoved
-  // bookkeeping to encode, only boardHistory's board snapshot).
+  // Normal play/puzzle mode only show this for the live position - a
+  // browsed-history frame is read-only there, and showing "live" analysis
+  // for it would misleadingly imply it's the position actually in play.
+  // Analysis mode (T-Analysis) is different on purpose: there's no "live"
+  // game to defer to, browsing IS the whole point, so every browsed
+  // position gets its own live analysis from stateHistory[viewIndex].
   function renderAnalysis() {
-    var analysis = (state && !state.gameOver && isViewingLive()) ? computeQuickAnalysis() : null;
+    var targetState = inAnalysisMode ? stateHistory[viewIndex] : state;
+    var canAnalyse = inAnalysisMode ? !!targetState : (state && !state.gameOver && isViewingLive());
+    var analysis = canAnalyse ? computeQuickAnalysis(targetState) : null;
     renderEvalBarFrom(analysis);
     renderPolicyHeatmapFrom(analysis);
   }
@@ -1484,6 +1503,7 @@
       state = result.state;
       moveList.push({ color: movingColor, notation: toAlgebraic(r, c) });
       boardHistory.push(state.board);
+      stateHistory.push(state);
       // If a browsed-back view was already showing an older position, leave
       // it there rather than yanking the player forward to this new move -
       // renderHistoryFrame() re-renders whatever viewIndex currently is.
@@ -1493,7 +1513,14 @@
       animating = false;
       document.body.classList.remove('is-animating');
       if (state.gameOver) {
-        recordFinishedGame();
+        // Analysis-mode games are exploratory sandboxing from an arbitrary
+        // (often no-AI-seat) position, not a "real" played-from-the-start
+        // game - recording one would pollute Games/History's stats (games
+        // played, average length, win rate vs a bot) with something that
+        // was never really that. Puzzle mode is excluded from this
+        // entirely differently (attemptPuzzleMove doesn't go through
+        // commitMove at all), but the intent is the same.
+        if (!inAnalysisMode) recordFinishedGame();
         showWinScreen();
       } else {
         maybePlayAiTurn(epoch);
@@ -1608,6 +1635,9 @@
     inPuzzleMode = false;
     currentPuzzle = null;
     if (puzzleFeedbackEl) puzzleFeedbackEl.classList.add('hidden');
+    // Same reasoning as inPuzzleMode above - openAnalysis() re-enables it
+    // immediately after calling this.
+    inAnalysisMode = false;
   }
 
   // Whichever weights/version-info an AI seat actually plays with: its own
@@ -1674,6 +1704,7 @@
     }
     state = game;
     boardHistory = [state.board];
+    stateHistory = [state];
     moveList = [];
     viewIndex = 0;
     gameStartCwn = GL.encodeCwn(state);
@@ -1914,6 +1945,7 @@
     var decoded = GL.decodeCwn(puzzle.cwn);
     state = decoded;
     boardHistory = [state.board];
+    stateHistory = [state];
     moveList = [];
     viewIndex = 0;
     gameStartCwn = puzzle.cwn;
@@ -1961,6 +1993,64 @@
     }
   }
 
+  // ---------- Analysis mode ----------
+  // A launcher action, not a screen of its own - see ROUTE_FOR_SCREEN's
+  // comment. Loads an arbitrary position (pasted CWN, or a full share
+  // link - shareCurrentPosition()'s own output is exactly the latter) onto
+  // an ordinary, fully-human-seats game screen (decodeCwn's default), so
+  // playing forward from it is just normal play - the one real difference
+  // is renderAnalysis() staying live while browsing past moves instead of
+  // only for the live position (see there). Branching from a browsed-back
+  // point is deliberately NOT supported here either, same as everywhere
+  // else in the game (T5, explicitly deferred) - you can only continue
+  // forward from the actual latest position.
+  var inAnalysisMode = false;
+
+  // Accepts either a bare CWN string or a full share link (shareCurrentPosition's
+  // own "...?cwn=<encoded>" output) - a player pasting a URL shouldn't have
+  // to manually extract the query param first.
+  function extractCwnFromInput(text) {
+    text = text.trim();
+    var idx = text.indexOf('?cwn=');
+    if (idx === -1) return text || null;
+    var after = text.slice(idx + 5);
+    var amp = after.indexOf('&');
+    if (amp !== -1) after = after.slice(0, amp);
+    try {
+      return decodeURIComponent(after);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function openAnalysis() {
+    var input = window.prompt('Paste a Colour Wars position (CWN string or share link) to analyse:');
+    if (!input) return;
+    var cwn = extractCwnFromInput(input);
+    if (!cwn) { window.alert('Could not find a position in that text.'); return; }
+    var decoded;
+    try {
+      decoded = GL.decodeCwn(cwn);
+    } catch (e) {
+      window.alert('Could not load that position: ' + e.message);
+      return;
+    }
+    resetAnimationState();
+    inAnalysisMode = true;
+    state = decoded;
+    boardHistory = [state.board];
+    stateHistory = [state];
+    moveList = [];
+    viewIndex = 0;
+    gameStartCwn = cwn;
+    longestChainThisGame = 0;
+    moveReviewData = null;
+    buildBoardDom(state.rows, state.cols);
+    renderPlayersStrip();
+    renderHistoryFrame();
+    showScreen('game');
+  }
+
   // ---------- Share / export / import (T6: CWN) ----------
 
   // Clipboard writes need a secure context and, in some browsers, a fresh
@@ -2004,6 +2094,7 @@
     var startState = GL.decodeCwn(startPosition);
     var replayState = startState;
     var replayBoardHistory = [startState.board];
+    var replayStateHistory = [startState];
     var replayMoveList = [];
     var longestChain = 0;
     for (var i = 0; i < moves.length; i++) {
@@ -2017,11 +2108,12 @@
       if (result.steps.length > longestChain) longestChain = result.steps.length;
       replayState = result.state;
       replayBoardHistory.push(replayState.board);
+      replayStateHistory.push(replayState);
       replayMoveList.push({ color: color, notation: moves[i] });
     }
     return {
-      state: replayState, boardHistory: replayBoardHistory, moveList: replayMoveList,
-      startCwn: startPosition, longestChain: longestChain
+      state: replayState, boardHistory: replayBoardHistory, stateHistory: replayStateHistory,
+      moveList: replayMoveList, startCwn: startPosition, longestChain: longestChain
     };
   }
 
@@ -2036,6 +2128,11 @@
     resetAnimationState();
     state = replay.state;
     boardHistory = replay.boardHistory;
+    // The bare ?cwn= share-link path builds a replay object with no
+    // per-ply state history (there's no move list to derive one from, just
+    // a single position) - [state] is the correct (and only sensible)
+    // one-entry history there too.
+    stateHistory = replay.stateHistory || [replay.state];
     moveList = replay.moveList;
     viewIndex = boardHistory.length - 1;
     gameStartCwn = replay.startCwn;

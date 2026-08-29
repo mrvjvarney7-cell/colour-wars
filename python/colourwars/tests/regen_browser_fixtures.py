@@ -37,6 +37,7 @@ FIXTURES = [
     "browser_ai_insight_toggle_test.html",
     "browser_ai_seat0_test.html",
     "browser_ai_version_select_test.html",
+    "browser_analysis_test.html",
     "browser_bot_ladder_test.html",
     "browser_chain_preview_test.html",
     "browser_cwn_share_test.html",
