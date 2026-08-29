@@ -1,10 +1,25 @@
 """Watches the training run for newly-PROMOTED checkpoints and automatically
 deploys each one to the browser AI: exports js/ai/weights.js from best.pt
 (including AI_VERSION metadata so the site can state which iteration is
-live), bumps the site's cache-buster version, commits, and pushes to GitHub
-- so the live site only ever shows a verified-stronger version, never a
-candidate that lost its promotion eval, without a manual export/commit/push
+live) and js/ai/versions/ (every promoted iteration, individually
+fetchable), then commits and pushes ONLY those auto-generated paths to
+GitHub - so the live site only ever shows a verified-stronger version, never
+a candidate that lost its promotion eval, without a manual export/commit/push
 each time.
+
+Deliberately does NOT touch index.html, style.css, js/ui.js, or any
+browser_*_test.html, even though some of those carry the site's `?v=N`
+cache-buster - those are files a human edits by hand during front-end work,
+and staging one with `git add` stages its ENTIRE current diff, not just a
+cache-buster bump. Two runs of this exact conflict (this watcher's commit
+silently sweeping up unrelated in-progress front-end edits, requiring a
+manual pause) is why: this script now owns a strictly disjoint set of files
+from anything a person hand-edits, so it's safe to leave running at all
+times, no pause needed. The cost: weights.js/versions/ have no cache-buster
+of their own, so a returning visitor can see a promotion up to ~10 minutes
+late (GitHub Pages' max-age=600) instead of immediately - a bounded, minor
+staleness window traded for never mixing an auto-deploy commit with
+in-progress front-end work again.
 
 A "new promotion" is defined by training_log.jsonl gaining a record with
 promoted=true for a higher iteration than what's currently deployed - that
@@ -34,18 +49,6 @@ CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "checkpoints")
 TRAINING_LOG_PATH = os.path.join(CHECKPOINT_DIR, "training_log.jsonl")
 WEIGHTS_JS_PATH = os.path.join(REPO_ROOT, "js", "ai", "weights.js")
 
-# Every file that carries the site's `?v=N` cache buster / `build N` tag;
-# kept in sync so the browser test fixtures never drift from index.html.
-HTML_FILES_WITH_CACHE_BUSTER = [
-    os.path.join(REPO_ROOT, "index.html"),
-    os.path.join(REPO_ROOT, "browser_ai_e2e_test.html"),
-    os.path.join(REPO_ROOT, "ai_move_timing_test.html"),
-    os.path.join(REPO_ROOT, "browser_ai_seat0_test.html"),
-    os.path.join(REPO_ROOT, "browser_ai_version_select_test.html"),
-    os.path.join(REPO_ROOT, "browser_ai_insight_toggle_test.html"),
-    os.path.join(REPO_ROOT, "browser_theme_toggle_test.html"),
-]
-
 POLL_SECONDS = 120
 
 
@@ -71,25 +74,6 @@ def _deployed_iteration() -> int | None:
         text = f.read()
     match = re.search(r'"iteration":\s*(\d+)', text)
     return int(match.group(1)) if match else None
-
-
-def _current_cache_buster_version() -> int:
-    with open(HTML_FILES_WITH_CACHE_BUSTER[0]) as f:
-        text = f.read()
-    match = re.search(r"\?v=(\d+)", text)
-    if not match:
-        raise RuntimeError(f"No ?v=N cache buster found in {HTML_FILES_WITH_CACHE_BUSTER[0]}")
-    return int(match.group(1))
-
-
-def _bump_cache_buster(old_version: int, new_version: int) -> None:
-    for path in HTML_FILES_WITH_CACHE_BUSTER:
-        with open(path) as f:
-            text = f.read()
-        text = text.replace(f"?v={old_version}", f"?v={new_version}")
-        text = text.replace(f"build {old_version}", f"build {new_version}")
-        with open(path, "w") as f:
-            f.write(text)
 
 
 def _run(cmd: list, **kwargs) -> None:
@@ -127,26 +111,24 @@ def deploy_promotion(record: dict) -> bool:
     # too if the chain's shape changes.
     _run([sys.executable, "-m", "colourwars.export_all_versions"], cwd=PYTHON_DIR)
 
-    old_version = _current_cache_buster_version()
-    new_version = old_version + 1
-    _bump_cache_buster(old_version, new_version)
-
-    _run(["git", "add", "js/ai/weights.js", "js/ai/versions"] + [
-        os.path.relpath(p, REPO_ROOT).replace(os.sep, "/") for p in HTML_FILES_WITH_CACHE_BUSTER
-    ])
+    # Only ever these two paths - both entirely auto-generated, never
+    # hand-edited - so this commit can never pick up unrelated in-progress
+    # front-end work sitting in index.html/ui.js/style.css/etc. See the
+    # module docstring for why that used to happen and why it can't now.
+    _run(["git", "add", "js/ai/weights.js", "js/ai/versions"])
 
     win_rate = record.get("win_rate_vs_random")
     win_rate_str = f"{win_rate:.0%}" if isinstance(win_rate, (int, float)) else "n/a"
     win_rate_vs_best = record.get("win_rate_vs_best")
     win_rate_vs_best_str = f"{win_rate_vs_best:.0%}" if isinstance(win_rate_vs_best, (int, float)) else "n/a"
     message = (
-        f"Auto-deploy newly-promoted AI iteration {iteration} to the website (build {new_version})\n\n"
+        f"Auto-deploy newly-promoted AI iteration {iteration} to the website\n\n"
         f"Win rate vs random: {win_rate_str}; beat the previous best {win_rate_vs_best_str} of games.\n"
         f"Deployed automatically by colourwars.auto_deploy (promotions only)."
     )
     _run(["git", "commit", "-m", message])
     _run(["git", "push", "origin", "main"])
-    print(f"Deployed and pushed promoted iteration {iteration} (build {new_version}).")
+    print(f"Deployed and pushed promoted iteration {iteration}.")
     return True
 
 
