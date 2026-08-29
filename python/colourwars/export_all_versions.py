@@ -71,6 +71,9 @@ def main():
             "file": filename,
             "elo": round(elo_chain.get(iteration, 0.0)),
             "winRateVsRandom": record.get("win_rate_vs_random"),
+            # See derive_version_info in export_weights.py for what this means
+            # and why it isn't shown as an equally-trustworthy Elo when false.
+            "measuredOnFixedHarness": "win_rate_vs_best_draws" in record,
         })
 
     index_path = os.path.join(args.out_dir, "index.json")

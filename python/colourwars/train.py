@@ -22,7 +22,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
-from colourwars.evaluate import evaluate_vs_random, evaluate_vs_checkpoint
+from colourwars.evaluate import evaluate_vs_random, evaluate_vs_checkpoint, evaluate_vs_checkpoint_2p_paired
 from colourwars.network import ColourWarsNet
 from colourwars.selfplay import TrainingExample, generate_selfplay_games, generate_selfplay_games_batched, play_one_game
 
@@ -75,6 +75,11 @@ def check_stagnation(history: list) -> str | None:
     """Returns a human-readable warning string if the recent history shows no
     clear improvement (win rate vs previous-best stuck near 50%) or the
     losses look like they've plateaued/diverged, else None."""
+    # Non-eval marker records (e.g. an elo_chain_reset rebaseline) have no
+    # win_rate_vs_best/policy_loss/value_loss - exclude them so they can't
+    # crash the window logic below or silently widen it.
+    history = [r for r in history if "win_rate_vs_best" in r]
+
     if len(history) < STAGNATION_WINDOW:
         return None
 
@@ -205,12 +210,36 @@ def main():
     parser.add_argument("--replay-buffer-games", type=int, default=200,
                          help="max self-play GAMES worth of examples kept in the replay buffer")
     parser.add_argument("--eval-games", type=int, default=100,
-                         help="raised from 20->100 default: 20-game promotion checks proved too "
-                              "noisy to trust near the 55% bar (see iter 5-9 of the first real run)")
-    parser.add_argument("--eval-simulations", type=int, default=20,
-                         help="MCTS sims/move for evaluation games (kept independent of "
-                              "--simulations since evaluation still uses the slower Python "
-                              "single-game MCTS - evaluate.py wasn't part of the Rust port)")
+                         help="game count for the DIAGNOSTIC-ONLY mixed 2/3/4p vs-best and "
+                              "vs-random checks (win_rate_vs_best_multiplayer, win_rate_vs_random) "
+                              "- these are logged but no longer control promotion")
+    parser.add_argument("--eval-openings", type=int, default=100,
+                         help="the actual promotion-gating metric: this many distinct 2-player "
+                              "openings, each played twice with the candidate in both seats "
+                              "(so up to 2x this many games total) - see evaluate_vs_checkpoint_2p_paired. "
+                              "2p-only and paired because free-for-all parity isn't 50% and "
+                              "seat/first-player advantage otherwise dominates the variance")
+    parser.add_argument("--opening-plies", type=int, default=8,
+                         help="how many opening moves (per paired-eval game) are sampled at "
+                              "--opening-temperature before play goes fully greedy")
+    parser.add_argument("--opening-temperature", type=float, default=0.5,
+                         help="move-selection temperature for the first --opening-plies moves of "
+                              "each paired-eval opening (KataGo's gating protocol: temperature for "
+                              "position diversity, root Dirichlet noise OFF since that would degrade "
+                              "search quality itself rather than just diversify positions)")
+    parser.add_argument("--eval-simulations", type=int, default=100,
+                         help="MCTS sims/move for evaluation games. Was 20 by default - too far "
+                              "below --simulations (100, what self-play and thus promotion is "
+                              "actually meant to measure): a network can look flat at 20 sims and "
+                              "strong at 100, so grading at 20 measures a different thing than what "
+                              "gets deployed. Raised to match, even though eval still uses the "
+                              "slower Python single-game MCTS (evaluate.py wasn't part of the Rust "
+                              "port) - 200 games/iteration at 100 sims is still small next to 1500 "
+                              "self-play games/iteration.")
+    parser.add_argument("--eval-max-moves", type=int, default=300,
+                         help="ply cap per paired-eval game before it's scored as a 0.5/0.5 draw "
+                              "(engine-tournament adjudication convention - never discarded, so the "
+                              "denominator can't silently shrink with however many games grind out)")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--start-iteration", type=int, default=1,
@@ -277,30 +306,18 @@ def main():
             best_elo = record["best_elo"]
             break
 
-    # Whether `net`'s current weights are exactly best.pt (true to start: net was
-    # just loaded from - or saved as - best_path above). Self-play must always
-    # be generated by a network that's at least as strong as the best verified
-    # one; without this, a candidate that LOSES its promotion eval would still
-    # be kept as the base for the next iteration's self-play and training, with
-    # nothing ever pulling a drifting network back toward the best-known point.
-    # That's exactly what happened for 8 straight non-promoted iterations
-    # (11-19 of the run this was diagnosed from) before this fix.
-    net_is_best = True
+    # Self-play is always generated from the LATEST trained net, never reverted
+    # to best.pt. This is deliberate policy iteration (AlphaZero-style), not
+    # best-player gating: reverting on every non-promoted iteration (the old
+    # behaviour) meant self-play after iteration 11 was generated exclusively
+    # by the frozen iteration-11 network for 15 straight iterations - fitting
+    # a student to a fixed teacher instead of improving. win_rate_vs_best below
+    # is kept purely as a logged benchmark / what auto_deploy ships from
+    # best.pt; it no longer feeds back into which weights generate data.
 
     for i in range(args.iterations):
         iteration = args.start_iteration + i
         t0 = time.time()
-
-        if not net_is_best:
-            print(f"Previous candidate was not promoted - reverting to best.pt "
-                  f"before this iteration (replay buffer kept: those games are still "
-                  f"valid training data - each one's own MCTS visit counts/outcome are "
-                  f"correct regardless of which network generated them - and self-play "
-                  f"from here on is generated by the restored best network again, so "
-                  f"there's no drift risk left to guard against by discarding them).")
-            load_checkpoint(net, best_path, device)
-            optimizer = make_optimizer()
-            net_is_best = True
 
         print(f"\n=== Iteration {iteration} ({i + 1}/{args.iterations} this run) ===")
 
@@ -331,12 +348,31 @@ def main():
         save_checkpoint(net, candidate_path)
 
         t2 = time.time()
-        print(f"Evaluating candidate vs previous best ({args.eval_games} games, "
+        print(f"Evaluating candidate vs previous best - GATING metric "
+              f"({args.eval_openings} paired 2p openings, up to {2 * args.eval_openings} games, "
+              f"{args.opening_plies} plies @ T={args.opening_temperature} then greedy, "
               f"{args.eval_simulations} sims/move)...")
-        win_rate_vs_best = evaluate_vs_checkpoint(
+        gating_result = evaluate_vs_checkpoint_2p_paired(
+            net, best_path, device, num_openings=args.eval_openings, num_simulations=args.eval_simulations,
+            opening_plies=args.opening_plies, opening_temperature=args.opening_temperature,
+            max_moves=args.eval_max_moves,
+        )
+        win_rate_vs_best = gating_result["win_rate"]
+        print(f"Candidate win rate vs previous best (2p paired, gating): {win_rate_vs_best:.1%} "
+              f"({gating_result['wins']}W/{gating_result['draws']}D/{gating_result['losses']}L "
+              f"of {gating_result['attempted']} attempted, draws scored 0.5 each)")
+
+        breakdown_path = os.path.join(CHECKPOINT_DIR, f"eval_breakdown_iter{iteration}.json")
+        with open(breakdown_path, "w") as f:
+            json.dump(gating_result, f)
+
+        print(f"Evaluating candidate vs previous best - diagnostic-only mixed 2/3/4p "
+              f"({args.eval_games} games, {args.eval_simulations} sims/move)...")
+        win_rate_vs_best_multiplayer = evaluate_vs_checkpoint(
             net, best_path, device, num_games=args.eval_games, num_simulations=args.eval_simulations
         )
-        print(f"Candidate win rate vs previous best: {win_rate_vs_best:.1%}")
+        print(f"Candidate win rate vs previous best (mixed 2/3/4p, diagnostic only): "
+              f"{win_rate_vs_best_multiplayer:.1%}")
 
         win_rate_vs_random = evaluate_vs_random(
             net, device, num_games=args.eval_games, num_simulations=args.eval_simulations
@@ -345,19 +381,23 @@ def main():
         print(f"Eval done in {time.time() - t2:.1f}s.")
 
         # Elo is purely a reporting metric here - it does not affect promoted
-        # below, which is still decided by the win-rate threshold alone.
+        # below, which is still decided by the win-rate threshold alone. Uses
+        # the 2p-paired rate, matching the symmetric-match assumption the
+        # win_rate_to_elo_diff formula is derived from - the multiplayer rate
+        # would give a meaningless Elo gap.
         candidate_elo = best_elo + win_rate_to_elo_diff(win_rate_vs_best)
         print(f"Candidate Elo estimate: {candidate_elo:.0f} (best.pt is {best_elo:.0f})")
 
         promoted = win_rate_vs_best > 0.55
-        net_is_best = promoted
         if promoted:
-            print("Candidate is stronger -> promoting to best.pt")
+            print("Candidate is stronger (2p paired gating) -> promoting to best.pt "
+                  "(benchmark/deploy checkpoint only - self-play already continues from "
+                  "the latest net either way)")
             save_checkpoint(net, best_path)
             best_elo = candidate_elo
         else:
-            print("Candidate did not beat previous best by enough margin -> reverting to best.pt "
-                  "before the next iteration (see the net_is_best check above).")
+            print("Candidate did not beat previous best by 55% margin on the 2p paired gating "
+                  "metric (logged only - self-play continues from this net next iteration, no revert).")
 
         iter_time = time.time() - t0
         print(f"Iteration total time: {iter_time:.1f}s")
@@ -370,6 +410,11 @@ def main():
             "policy_loss": stats["policy_loss"],
             "value_loss": stats["value_loss"],
             "win_rate_vs_best": win_rate_vs_best,
+            "win_rate_vs_best_wins": gating_result["wins"],
+            "win_rate_vs_best_draws": gating_result["draws"],
+            "win_rate_vs_best_losses": gating_result["losses"],
+            "win_rate_vs_best_attempted": gating_result["attempted"],
+            "win_rate_vs_best_multiplayer": win_rate_vs_best_multiplayer,
             "win_rate_vs_random": win_rate_vs_random,
             "promoted": promoted,
             "iter_time_sec": iter_time,

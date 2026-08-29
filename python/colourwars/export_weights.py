@@ -59,7 +59,26 @@ def compute_promoted_elo_chain(training_log_path: str = TRAINING_LOG_PATH, ancho
     """
     from colourwars.train import win_rate_to_elo_diff  # local import: keeps torch off this module's critical path until needed
 
-    promoted = [r for r in _read_training_log(training_log_path) if r.get("promoted")]
+    records = _read_training_log(training_log_path)
+
+    # A rebaseline marker (elo_chain_reset=true) discards all Elo history
+    # before it - see the 2026-08-29 iteration-26 rebaseline: iteration 11's
+    # promotion was measured under a since-fixed, structurally-broken eval
+    # (free-for-all win rate, fully deterministic games), so continuing its
+    # Elo chain forward would just be extending a number with no real content.
+    # If a reset marker exists, only it and later records feed the chain, and
+    # it becomes the new anchor point (at its own "best_elo", not `anchor`).
+    reset_index = None
+    reset_elo = anchor
+    for idx, r in enumerate(records):
+        if r.get("elo_chain_reset"):
+            reset_index = idx
+            reset_elo = r.get("best_elo", anchor)
+    if reset_index is not None:
+        records = records[reset_index:]
+        anchor = reset_elo
+
+    promoted = [r for r in records if r.get("promoted") or r.get("elo_chain_reset")]
     chain = {}
     elo = anchor
     for i, record in enumerate(promoted):
@@ -81,6 +100,18 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
         "winRateVsBest": None,
         "promoted": None,
         "elo": None,
+        # True only if the record that produced this checkpoint's numbers was
+        # written by the 2p-paired, draw-scoring eval harness (identified by
+        # the "win_rate_vs_best_draws" field, which only that harness writes -
+        # see the 2026-08-29 eval-harness fixes). Earlier records' win rates
+        # came from a harness later found to be structurally biased
+        # (deterministic games, effectively ~9 distinct outcomes, discarded
+        # unfinished games instead of scoring them as draws) - their Elo is
+        # not comparable to a fixed-harness one and shouldn't be shown as
+        # equally authoritative. None here (no record matched at all) is
+        # display-equivalent to False in ui.js - both mean "don't trust this
+        # Elo as-is" - the split only matters for future record-keeping.
+        "measuredOnFixedHarness": None,
         "exportedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
@@ -96,17 +127,27 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
                 info["promoted"] = record.get("promoted")
                 info["elo"] = elo_chain.get(iteration)
+                info["measuredOnFixedHarness"] = "win_rate_vs_best_draws" in record
                 break
     elif checkpoint_file == "best.pt":
-        # best.pt is whichever candidate most recently beat the previous
-        # best - that's the last record with promoted=True, if any.
+        # best.pt is whichever candidate most recently became the reference -
+        # normally the last record with promoted=True, but an elo_chain_reset
+        # marker (see compute_promoted_elo_chain) explicitly overrides that
+        # when best.pt was re-baselined outside the normal promotion path
+        # (e.g. iteration 26, 2026-08-29 - promoted from bad eval data, not
+        # a real win-rate check, so winRateVsBest/winRateVsRandom are left
+        # null rather than showing a number that would mean nothing).
         for record in reversed(_read_training_log(training_log_path)):
-            if record.get("promoted"):
+            if record.get("promoted") or record.get("elo_chain_reset"):
                 info["iteration"] = record.get("iteration")
                 info["winRateVsRandom"] = record.get("win_rate_vs_random")
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
-                info["promoted"] = True
+                info["promoted"] = bool(record.get("promoted"))
                 info["elo"] = elo_chain.get(record.get("iteration"))
+                info["measuredOnFixedHarness"] = "win_rate_vs_best_draws" in record
+                if record.get("elo_chain_reset"):
+                    info["rebaselined"] = True
+                    info["rebaselineNote"] = record.get("note")
                 break
 
     return info
