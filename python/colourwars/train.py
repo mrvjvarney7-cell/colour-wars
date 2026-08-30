@@ -22,7 +22,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
-from colourwars.evaluate import evaluate_vs_random, evaluate_vs_checkpoint, evaluate_vs_checkpoint_2p_paired
+from colourwars.evaluate import evaluate_vs_random, evaluate_vs_checkpoint_2p_paired
 from colourwars.network import ColourWarsNet
 from colourwars.selfplay import TrainingExample, generate_selfplay_games, generate_selfplay_games_batched, play_one_game
 
@@ -210,9 +210,8 @@ def main():
     parser.add_argument("--replay-buffer-games", type=int, default=200,
                          help="max self-play GAMES worth of examples kept in the replay buffer")
     parser.add_argument("--eval-games", type=int, default=100,
-                         help="game count for the DIAGNOSTIC-ONLY mixed 2/3/4p vs-best and "
-                              "vs-random checks (win_rate_vs_best_multiplayer, win_rate_vs_random) "
-                              "- these are logged but no longer control promotion")
+                         help="game count for the DIAGNOSTIC-ONLY vs-random check "
+                              "(win_rate_vs_random) - logged but does not control promotion")
     parser.add_argument("--eval-openings", type=int, default=100,
                          help="the actual promotion-gating metric: this many distinct 2-player "
                               "openings, each played twice with the candidate in both seats "
@@ -366,14 +365,6 @@ def main():
         with open(breakdown_path, "w") as f:
             json.dump(gating_result, f)
 
-        print(f"Evaluating candidate vs previous best - diagnostic-only mixed 2/3/4p "
-              f"({args.eval_games} games, {args.eval_simulations} sims/move)...")
-        win_rate_vs_best_multiplayer = evaluate_vs_checkpoint(
-            net, best_path, device, num_games=args.eval_games, num_simulations=args.eval_simulations
-        )
-        print(f"Candidate win rate vs previous best (mixed 2/3/4p, diagnostic only): "
-              f"{win_rate_vs_best_multiplayer:.1%}")
-
         win_rate_vs_random = evaluate_vs_random(
             net, device, num_games=args.eval_games, num_simulations=args.eval_simulations
         )
@@ -383,8 +374,10 @@ def main():
         # Elo is purely a reporting metric here - it does not affect promoted
         # below, which is still decided by the win-rate threshold alone. Uses
         # the 2p-paired rate, matching the symmetric-match assumption the
-        # win_rate_to_elo_diff formula is derived from - the multiplayer rate
-        # would give a meaningless Elo gap.
+        # win_rate_to_elo_diff formula is derived from - a free-for-all rate
+        # would give a meaningless Elo gap (see the removed
+        # evaluate_vs_checkpoint's own docstring: at exact parity a
+        # 2/3/4-blended rate's baseline is 1/num_players, not 50%).
         candidate_elo = best_elo + win_rate_to_elo_diff(win_rate_vs_best)
         print(f"Candidate Elo estimate: {candidate_elo:.0f} (best.pt is {best_elo:.0f})")
 
@@ -409,12 +402,17 @@ def main():
             "examples_in_buffer": len(flat_examples),
             "policy_loss": stats["policy_loss"],
             "value_loss": stats["value_loss"],
+            # Explicit, unambiguous marker for export_weights.py's
+            # is_measured_on_fixed_harness() - added instead of relying on
+            # incidental field presence (the old check inferred this from
+            # win_rate_vs_best_multiplayer existing, which broke once that
+            # field stopped being written here; see this commit).
+            "gating_harness": "2p_paired_v1",
             "win_rate_vs_best": win_rate_vs_best,
             "win_rate_vs_best_wins": gating_result["wins"],
             "win_rate_vs_best_draws": gating_result["draws"],
             "win_rate_vs_best_losses": gating_result["losses"],
             "win_rate_vs_best_attempted": gating_result["attempted"],
-            "win_rate_vs_best_multiplayer": win_rate_vs_best_multiplayer,
             "win_rate_vs_random": win_rate_vs_random,
             "promoted": promoted,
             "iter_time_sec": iter_time,

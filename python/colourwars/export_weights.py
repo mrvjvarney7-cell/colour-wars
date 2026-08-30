@@ -104,15 +104,24 @@ def find_elo_chain_reset_iteration(training_log_path: str = TRAINING_LOG_PATH):
 def is_measured_on_fixed_harness(record: dict) -> bool:
     """True if this training-log record's win rate came from the 2p-paired,
     draws-scored eval harness (see the 2026-08-29 eval-harness fixes).
-    Checks two field names because a short window of iterations (28-31) ran
-    against a live training process that had already switched to the new
-    harness's gating logic before a later, purely-cosmetic edit added the
-    detailed win/draw/loss breakdown fields - that edit landed on disk after
-    the process had already started, so those iterations' log records never
-    picked it up despite being measured correctly. win_rate_vs_best_multiplayer
-    is written by the same rework (the old harness never separated a
-    multiplayer diagnostic from the gating number), so its presence alone is
-    still a reliable signal."""
+
+    Checked via an explicit "gating_harness" marker first - train.py writes
+    "gating_harness": "2p_paired_v1" on every record from that harness,
+    added when the diagnostic-only mixed 2/3/4p eval was dropped from the
+    training loop (its win_rate_vs_best_multiplayer field had been doing
+    double duty as this detector's signal; removing the eval without adding
+    an explicit marker would have silently misclassified every later
+    genuinely-fixed-harness record as provisional).
+
+    Falls back to the two field names for records written before that
+    marker existed: a short window of iterations (28-31) ran against a live
+    training process that had already switched to the new harness's gating
+    logic before a later, purely-cosmetic edit added the detailed
+    win/draw/loss breakdown fields - that edit landed on disk after the
+    process had already started, so those iterations' log records never
+    picked it up despite being measured correctly."""
+    if record.get("gating_harness") == "2p_paired_v1":
+        return True
     return "win_rate_vs_best_draws" in record or "win_rate_vs_best_multiplayer" in record
 
 
