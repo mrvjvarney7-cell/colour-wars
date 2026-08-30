@@ -615,6 +615,76 @@ body.is-animating .nav-scrim {
   color: var(--text-dim);
 }
 
+/* Bots / Engine / Settings / Home */
+
+.segmented.cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.bot-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bot-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.bot-card.locked {
+  opacity: 0.6;
+}
+
+.bot-card-avatar {
+  font-size: 28px;
+  flex-shrink: 0;
+  width: 40px;
+  text-align: center;
+}
+
+.bot-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bot-card-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.bot-card-meta,
+.bot-card-record {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.engine-chart {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px;
+}
+
+.elo-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.settings-data-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
 .rules-section p b {
   color: var(--text);
 }

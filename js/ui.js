@@ -68,6 +68,10 @@
   var winScreen = document.getElementById('win-screen');
   var historyScreen = document.getElementById('history-screen');
   var rulesScreen = document.getElementById('rules-screen');
+  var homeScreen = document.getElementById('home-screen');
+  var botsScreen = document.getElementById('bots-screen');
+  var engineScreen = document.getElementById('engine-screen');
+  var settingsScreen = document.getElementById('settings-screen');
 
   // The single place every screen transition goes through - every call site
   // used to hand-toggle .hidden on whichever two screens it cared about,
@@ -80,7 +84,11 @@
     setup: setupScreen,
     game: gameScreen,
     history: historyScreen,
-    rules: rulesScreen
+    rules: rulesScreen,
+    home: homeScreen,
+    bots: botsScreen,
+    engine: engineScreen,
+    settings: settingsScreen
   };
 
   // DOM-only: swaps which screen is visible, touches nothing else. Kept
@@ -111,8 +119,14 @@
   // route would mean tracking the same "what are we showing" state in two
   // places (the hash AND the inPuzzleMode-style flag), which is exactly the
   // drift this whole rework is meant to rule out.
-  var ROUTE_FOR_SCREEN = { setup: 'play', game: 'game', history: 'games', rules: 'rules' };
-  var SCREEN_FOR_ROUTE = { play: 'setup', game: 'game', games: 'history', rules: 'rules' };
+  var ROUTE_FOR_SCREEN = {
+    setup: 'play', game: 'game', history: 'games', rules: 'rules',
+    home: 'home', bots: 'bots', engine: 'engine', settings: 'settings'
+  };
+  var SCREEN_FOR_ROUTE = {
+    play: 'setup', game: 'game', games: 'history', rules: 'rules',
+    home: 'home', bots: 'bots', engine: 'engine', settings: 'settings'
+  };
 
   // The single place every screen transition goes through - every call site
   // used to hand-toggle .hidden on whichever two screens it cared about,
@@ -142,6 +156,10 @@
     // one-time initial-load bootstrap below, `state` already holds
     // whatever game was in progress before the user navigated away from it.
     if (name === 'history') renderHistoryScreen(); // don't show stale data on a back/forward return to Games
+    else if (name === 'bots') renderBotsScreen();
+    else if (name === 'engine') renderEngineScreen();
+    else if (name === 'settings') renderSettingsScreen();
+    else if (name === 'home') renderHome();
     applyScreen(name);
   });
 
@@ -157,17 +175,17 @@
   // existing open*() function already does beyond a bare screen swap -
   // openHistory() re-renders the list first, backToSetup() resets
   // animation/puzzle state, etc. `built: false` items have no action at
-  // all and render disabled - Analysis/Bots/Engine/Settings are still
-  // separate, not-yet-built steps of this same nav rework.
+  // all and render disabled - none left as of the Bots/Engine/Settings
+  // build, but the flag stays so a future item can land the same way.
   var NAV_ITEMS = [
     { id: 'play', label: 'Play', built: true, action: function () { backToSetup(); } },
     { id: 'puzzle', label: 'Puzzle', built: true, action: function () { openPuzzle(); } },
     { id: 'analysis', label: 'Analysis', built: true, action: function () { openAnalysis(); } },
-    { id: 'bots', label: 'Bots', built: false },
+    { id: 'bots', label: 'Bots', built: true, action: function () { openBots(); } },
     { id: 'games', label: 'Games', built: true, action: function () { openHistory(); } },
     { id: 'rules', label: 'Rules', built: true, action: function () { openRules(); } },
-    { id: 'engine', label: 'Engine', built: false },
-    { id: 'settings', label: 'Settings', built: false }
+    { id: 'engine', label: 'Engine', built: true, action: function () { openEngine(); } },
+    { id: 'settings', label: 'Settings', built: true, action: function () { openSettings(); } }
   ];
 
   function currentScreenName() {
@@ -187,6 +205,9 @@
     if (item.id === 'play') return current === 'setup';
     if (item.id === 'games') return current === 'history';
     if (item.id === 'rules') return current === 'rules';
+    if (item.id === 'bots') return current === 'bots';
+    if (item.id === 'engine') return current === 'engine';
+    if (item.id === 'settings') return current === 'settings';
     if (item.id === 'puzzle') return inPuzzleMode === true;
     if (item.id === 'analysis') return inAnalysisMode === true;
     return false;
@@ -337,16 +358,17 @@
     }, { passive: true });
   }
 
-  // The logo doubles as "Home" - there's no dedicated Home screen yet (see
-  // the nav rework's Home-vs-Play step, not built yet), so for now it
-  // lands on the same place "Play" does. Whichever logo is actually
-  // visible (topbar on mobile, sidebar on desktop) navigates the same way;
-  // href="#/play" is there as a plain-HTML fallback (e.g. no-JS, or a
+  // The logo goes to Home, not Play - see the Home section further down for
+  // what that screen actually shows. Whichever logo is actually visible
+  // (topbar on mobile, sidebar on desktop) navigates the same way;
+  // href="#/home" is there as a plain-HTML fallback (e.g. no-JS, or a
   // right-click "open in new tab") and the click handler still runs the
-  // real confirm-gated navigation on top of it.
+  // real confirm-gated navigation on top of it (openHome isn't defined yet
+  // at this point in the file, but this function reference isn't CALLED
+  // until a real click happens, long after the whole script has run).
   function goHome(e) {
     e.preventDefault();
-    activateNavItem({ id: 'play', built: true, action: function () { backToSetup(); } });
+    activateNavItem({ id: 'home', built: true, action: function () { openHome(); } });
   }
   if (topbarLogoLink) topbarLogoLink.addEventListener('click', goHome);
   if (navLogoLink) navLogoLink.addEventListener('click', goHome);
@@ -478,6 +500,13 @@
         }
       });
       refreshAllPlayerVersionSelects();
+      // index.json resolves asynchronously - if the visitor already opened
+      // one of these screens before it landed, refresh it now instead of
+      // leaving it stuck on its "loading" placeholder.
+      var shown = currentScreenName();
+      if (shown === 'bots') renderBotsScreen();
+      else if (shown === 'engine') renderEngineScreen();
+      else if (shown === 'home') renderHome();
     })
     .catch(function () {
       // No network / fetch blocked (e.g. some browsers restrict fetch() for
@@ -646,6 +675,181 @@
       sel.value = (wantedOption && !wantedOption.disabled) ? wanted : '';
     }
   }
+
+  // ---------- Bots screen ----------
+  var botRosterEl = document.getElementById('bot-roster');
+  var backFromBotsBtn = document.getElementById('back-from-bots-btn');
+
+  // Read-only roster view of the same ladder data buildVersionOptions()
+  // already computes for the setup screen's <select> - presented as cards
+  // to browse rather than options to pick, since picking who to actually
+  // play against still happens on Play. Recomputed on every open so a bot
+  // just unlocked by a finished game shows unlocked immediately.
+  function renderBotsScreen() {
+    if (!botRosterEl) return;
+    botRosterEl.innerHTML = '';
+    var ladder = ladderVersionsAscending();
+    if (ladder.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = 'Loading bot roster...';
+      botRosterEl.appendChild(empty);
+      return;
+    }
+    var stats = computeHistoryStats(loadGameHistory());
+    ladder.forEach(function (v, rank) {
+      var tier = botTierForRank(rank);
+      var unlocked = isBotUnlocked(rank, ladder);
+      var card = document.createElement('div');
+      card.className = 'bot-card' + (unlocked ? '' : ' locked');
+
+      var avatar = document.createElement('div');
+      avatar.className = 'bot-card-avatar';
+      avatar.textContent = unlocked ? tier.avatar : '🔒';
+      card.appendChild(avatar);
+
+      var body = document.createElement('div');
+      body.className = 'bot-card-body';
+
+      var name = document.createElement('div');
+      name.className = 'bot-card-name';
+      name.textContent = tier.name;
+      body.appendChild(name);
+
+      var meta = document.createElement('div');
+      meta.className = 'bot-card-meta';
+      if (unlocked) {
+        meta.textContent = 'Iteration ' + v.iteration + formatEloForDisplay(v) +
+          ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+      } else {
+        var previousTier = botTierForRank(rank - 1);
+        meta.textContent = 'Locked - beat ' + previousTier.name + ' to unlock';
+      }
+      body.appendChild(meta);
+
+      var record = stats.byBot[String(v.iteration)];
+      if (record) {
+        var recordLine = document.createElement('div');
+        recordLine.className = 'bot-card-record';
+        recordLine.textContent = 'Your record: ' + record.wins + '-' + (record.total - record.wins);
+        body.appendChild(recordLine);
+      }
+
+      card.appendChild(body);
+      botRosterEl.appendChild(card);
+    });
+  }
+
+  function openBots() {
+    renderBotsScreen();
+    showScreen('bots');
+  }
+  function closeBots() {
+    showScreen('setup');
+  }
+  if (backFromBotsBtn) backFromBotsBtn.addEventListener('click', closeBots);
+
+  // ---------- Engine screen ----------
+  var engineChartEl = document.getElementById('engine-chart');
+  var engineStatsPanelEl = document.getElementById('engine-stats-panel');
+  var backFromEngineBtn = document.getElementById('back-from-engine-btn');
+
+  // Builds a small inline SVG line chart from availableVersions (the same
+  // js/ai/versions/index.json already fetched for the setup screen's
+  // version picker) - no charting library, just enough geometry for a
+  // dozen-ish points. Pre-reset iterations are drawn as their own flat,
+  // dashed run rather than joined to the real curve: their Elo is 0 only
+  // because the old chain was discarded (see formatEloForDisplay's
+  // comment), not a real measurement on the same scale, so a connecting
+  // line there would present a discontinuity as if it were comparable data.
+  function buildEloChartSvg(points) {
+    var W = 600, H = 200, padL = 8, padR = 8, padT = 14, padB = 14;
+    var preReset = points.filter(function (p) { return p.preReset; });
+    var postReset = points.filter(function (p) { return !p.preReset; });
+    var xs = points.map(function (p) { return p.iteration; });
+    var minX = Math.min.apply(null, xs);
+    var maxX = Math.max.apply(null, xs);
+    function xScale(it) {
+      return maxX === minX ? (padL + (W - padL - padR) / 2) : padL + (it - minX) / (maxX - minX) * (W - padL - padR);
+    }
+
+    var parts = [];
+    var baselineY = H - padB;
+
+    if (preReset.length > 0) {
+      var preXs = preReset.map(function (p) { return xScale(p.iteration); });
+      parts.push('<line x1="' + Math.min.apply(null, preXs) + '" y1="' + baselineY + '" x2="' + Math.max.apply(null, preXs) +
+        '" y2="' + baselineY + '" stroke="var(--text-dim)" stroke-width="1.5" stroke-dasharray="3,4" />');
+      preXs.forEach(function (x) {
+        parts.push('<circle cx="' + x + '" cy="' + baselineY + '" r="3" fill="var(--text-dim)" />');
+      });
+    }
+
+    if (postReset.length > 0) {
+      var elos = postReset.map(function (p) { return p.elo; });
+      var minY = Math.min.apply(null, elos);
+      var maxY = Math.max.apply(null, elos);
+      if (minY === maxY) { minY -= 50; maxY += 50; }
+      var yScale = function (elo) {
+        return (H - padB) - (elo - minY) / (maxY - minY) * (H - padT - padB);
+      };
+      if (preReset.length > 0) {
+        var gapX = (xScale(preReset[preReset.length - 1].iteration) + xScale(postReset[0].iteration)) / 2;
+        parts.push('<line x1="' + gapX + '" y1="' + padT + '" x2="' + gapX + '" y2="' + (H - padB) +
+          '" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="2,3" />');
+      }
+      var pathD = postReset.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + xScale(p.iteration) + ',' + yScale(p.elo);
+      }).join(' ');
+      parts.push('<path d="' + pathD + '" fill="none" stroke="var(--accent)" stroke-width="2.5" />');
+      postReset.forEach(function (p) {
+        parts.push('<circle cx="' + xScale(p.iteration) + '" cy="' + yScale(p.elo) + '" r="3.5" fill="var(--accent)"' +
+          (p.measuredOnFixedHarness ? '' : ' opacity="0.55"') + ' />');
+      });
+    }
+
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="elo-chart-svg" role="img" aria-label="Elo across promoted iterations">' +
+      parts.join('') + '</svg>';
+  }
+
+  function renderEngineScreen() {
+    if (!engineChartEl) return;
+    var points = availableVersions.slice().sort(function (a, b) { return a.iteration - b.iteration; });
+    if (points.length === 0) {
+      engineChartEl.innerHTML = '<div class="history-empty">Loading version history...</div>';
+      if (engineStatsPanelEl) engineStatsPanelEl.innerHTML = '';
+      return;
+    }
+    engineChartEl.innerHTML = buildEloChartSvg(points);
+
+    if (engineStatsPanelEl) {
+      engineStatsPanelEl.innerHTML = '';
+      var latest = points[points.length - 1];
+      var resetIteration = window.AI_VERSION && window.AI_VERSION.eloChainResetIteration;
+      var lines = [
+        'Promoted iterations: ' + points.length,
+        'Latest: iteration ' + latest.iteration + formatEloForDisplay(latest)
+      ];
+      if (resetIteration != null) {
+        lines.push('Elo reset at iteration ' + resetIteration + ' - earlier iterations are the separate, dashed run above, not part of the continuous curve.');
+      }
+      lines.forEach(function (line) {
+        var row = document.createElement('div');
+        row.className = 'stat-row';
+        row.textContent = line;
+        engineStatsPanelEl.appendChild(row);
+      });
+    }
+  }
+
+  function openEngine() {
+    renderEngineScreen();
+    showScreen('engine');
+  }
+  function closeEngine() {
+    showScreen('setup');
+  }
+  if (backFromEngineBtn) backFromEngineBtn.addEventListener('click', closeEngine);
 
   function renderPlayerCountButtons() {
     playerCountButtonsEl.innerHTML = '';
@@ -1908,6 +2112,145 @@
     showScreen('setup');
   }
 
+  // ---------- Settings ----------
+  // Device-local preferences only - static site, no account/backend to sync
+  // them to. Each control here writes straight through to the same
+  // variable/localStorage key/checkbox that already drives the actual
+  // behaviour elsewhere, rather than introducing a second copy of that
+  // state just for this screen.
+  var AI_SIMULATIONS_KEY = 'colourwars-ai-simulations';
+  var AI_INSIGHT_DEFAULT_KEY = 'colourwars-ai-insight-default';
+  var POLICY_HEATMAP_DEFAULT_KEY = 'colourwars-policy-heatmap-default';
+
+  var THINK_TIME_PRESETS = [
+    { id: 'fast', label: 'Fast', simulations: 30 },
+    { id: 'normal', label: 'Normal', simulations: 60 },
+    { id: 'strong', label: 'Strong', simulations: 150 }
+  ];
+
+  function getStoredThinkTimePreset() {
+    try {
+      var raw = localStorage.getItem(AI_SIMULATIONS_KEY);
+      var found = THINK_TIME_PRESETS.filter(function (p) { return String(p.simulations) === raw; })[0];
+      return found || THINK_TIME_PRESETS[1]; // Normal
+    } catch (e) { return THINK_TIME_PRESETS[1]; }
+  }
+  function setStoredThinkTimeSimulations(sims) {
+    try { localStorage.setItem(AI_SIMULATIONS_KEY, String(sims)); } catch (e) { /* private mode etc. */ }
+  }
+
+  // AI_SIMULATIONS (declared near the top of this file, default 60) is a
+  // plain var read at the moment each AI turn actually searches -
+  // reassigning it here (and again live from this screen below) takes
+  // effect on the very next AI move, no reload or restart needed.
+  AI_SIMULATIONS = getStoredThinkTimePreset().simulations;
+
+  function getStoredAiInsightDefault() {
+    try {
+      var v = localStorage.getItem(AI_INSIGHT_DEFAULT_KEY);
+      return v === null ? true : v === 'true'; // true matches the checkbox's own default (checked) markup
+    } catch (e) { return true; }
+  }
+  function setStoredAiInsightDefault(v) {
+    try { localStorage.setItem(AI_INSIGHT_DEFAULT_KEY, v ? 'true' : 'false'); } catch (e) { /* private mode etc. */ }
+  }
+  function getStoredPolicyHeatmapDefault() {
+    try { return localStorage.getItem(POLICY_HEATMAP_DEFAULT_KEY) === 'true'; } catch (e) { return false; }
+  }
+  function setStoredPolicyHeatmapDefault(v) {
+    try { localStorage.setItem(POLICY_HEATMAP_DEFAULT_KEY, v ? 'true' : 'false'); } catch (e) { /* private mode etc. */ }
+  }
+
+  // Applied once here so a stored preference takes effect on the setup
+  // screen's own checkboxes from the very first paint, not just after a
+  // visit to Settings.
+  if (aiInsightToggleInputEl) aiInsightToggleInputEl.checked = getStoredAiInsightDefault();
+  if (policyHeatmapToggleInputEl) policyHeatmapToggleInputEl.checked = getStoredPolicyHeatmapDefault();
+
+  var settingsThemeButtonsEl = document.getElementById('settings-theme-buttons');
+  var settingsThinkTimeButtonsEl = document.getElementById('settings-think-time-buttons');
+  var settingsAiInsightDefaultInput = document.getElementById('settings-ai-insight-default-input');
+  var settingsPolicyHeatmapDefaultInput = document.getElementById('settings-policy-heatmap-default-input');
+  var clearLocalDataBtn = document.getElementById('clear-local-data-btn');
+  var backFromSettingsBtn = document.getElementById('back-from-settings-btn');
+
+  var THEME_OPTIONS = [{ id: 'dark', label: 'Dark' }, { id: 'light', label: 'Light' }];
+
+  function renderSettingsThemeButtons() {
+    if (!settingsThemeButtonsEl) return;
+    settingsThemeButtonsEl.innerHTML = '';
+    var current = document.documentElement.getAttribute('data-theme') || 'dark';
+    THEME_OPTIONS.forEach(function (opt) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = opt.label;
+      if (opt.id === current) btn.classList.add('active');
+      btn.addEventListener('click', function () {
+        applyTheme(opt.id);
+        setStoredTheme(opt.id);
+        renderSettingsThemeButtons();
+      });
+      settingsThemeButtonsEl.appendChild(btn);
+    });
+  }
+
+  function renderSettingsThinkTimeButtons() {
+    if (!settingsThinkTimeButtonsEl) return;
+    settingsThinkTimeButtonsEl.innerHTML = '';
+    var current = getStoredThinkTimePreset();
+    THINK_TIME_PRESETS.forEach(function (preset) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = preset.label;
+      if (preset.id === current.id) btn.classList.add('active');
+      btn.addEventListener('click', function () {
+        AI_SIMULATIONS = preset.simulations;
+        setStoredThinkTimeSimulations(preset.simulations);
+        renderSettingsThinkTimeButtons();
+      });
+      settingsThinkTimeButtonsEl.appendChild(btn);
+    });
+  }
+
+  function renderSettingsScreen() {
+    renderSettingsThemeButtons();
+    renderSettingsThinkTimeButtons();
+    if (settingsAiInsightDefaultInput) settingsAiInsightDefaultInput.checked = getStoredAiInsightDefault();
+    if (settingsPolicyHeatmapDefaultInput) settingsPolicyHeatmapDefaultInput.checked = getStoredPolicyHeatmapDefault();
+  }
+
+  if (settingsAiInsightDefaultInput) {
+    settingsAiInsightDefaultInput.addEventListener('change', function () {
+      setStoredAiInsightDefault(this.checked);
+      if (aiInsightToggleInputEl) aiInsightToggleInputEl.checked = this.checked;
+    });
+  }
+  if (settingsPolicyHeatmapDefaultInput) {
+    settingsPolicyHeatmapDefaultInput.addEventListener('change', function () {
+      setStoredPolicyHeatmapDefault(this.checked);
+      if (policyHeatmapToggleInputEl) policyHeatmapToggleInputEl.checked = this.checked;
+    });
+  }
+
+  function openSettings() {
+    renderSettingsScreen();
+    showScreen('settings');
+  }
+  function closeSettings() {
+    showScreen('setup');
+  }
+  if (backFromSettingsBtn) backFromSettingsBtn.addEventListener('click', closeSettings);
+
+  if (clearLocalDataBtn) {
+    clearLocalDataBtn.addEventListener('click', function () {
+      if (!window.confirm('Clear all local data on this device? This removes your theme, AI defaults and local game history, and cannot be undone.')) return;
+      [THEME_STORAGE_KEY, SIDEBAR_COLLAPSED_KEY, HISTORY_STORAGE_KEY, AI_SIMULATIONS_KEY, AI_INSIGHT_DEFAULT_KEY, POLICY_HEATMAP_DEFAULT_KEY].forEach(function (key) {
+        try { localStorage.removeItem(key); } catch (e) { /* private mode etc. */ }
+      });
+      location.reload();
+    });
+  }
+
   // ---------- Daily puzzle (T10) ----------
   // js/puzzles.json is mined offline by python -m colourwars.mine_puzzles
   // (a standalone script, separate from the training/eval pipeline) - each
@@ -2201,6 +2544,89 @@
     });
   }
 
+  // ---------- Home ----------
+  // The logo's destination and the actual default landing page (see
+  // index.html - home-screen starts unhidden, setup-screen starts hidden,
+  // the reverse of before this screen existed). Every field here reads data
+  // that already exists elsewhere (in-memory game state, local history, the
+  // ladder helpers used by Bots) rather than tracking anything new just for
+  // this screen, and is hidden entirely when there's nothing to show.
+  var homeContinueFieldEl = document.getElementById('home-continue-field');
+  var homeContinueBtn = document.getElementById('home-continue-btn');
+  var homePuzzleFieldEl = document.getElementById('home-puzzle-field');
+  var homePuzzleBtn = document.getElementById('home-puzzle-btn');
+  var homeLadderFieldEl = document.getElementById('home-ladder-field');
+  var homeLadderPanelEl = document.getElementById('home-ladder-panel');
+  var homeRecentFieldEl = document.getElementById('home-recent-field');
+  var homeRecentListEl = document.getElementById('home-recent-list');
+  var homePlayBtn = document.getElementById('home-play-btn');
+
+  function renderHome() {
+    // Deliberately NOT isGameInProgress() - that helper also requires the
+    // board to be the screen currently on-screen, which by definition it
+    // never is while Home itself is showing. This only cares whether
+    // there's an unfinished game sitting in memory to resume.
+    var inProgress = !!state && !state.gameOver;
+    if (homeContinueFieldEl) homeContinueFieldEl.classList.toggle('hidden', !inProgress);
+
+    var hasPuzzle = puzzles.length > 0;
+    if (homePuzzleFieldEl) homePuzzleFieldEl.classList.toggle('hidden', !hasPuzzle);
+
+    var ladder = ladderVersionsAscending();
+    if (homeLadderFieldEl) homeLadderFieldEl.classList.toggle('hidden', ladder.length === 0);
+    if (homeLadderPanelEl && ladder.length > 0) {
+      var rank = -1;
+      ladder.forEach(function (v, i) { if (isBotUnlocked(i, ladder)) rank = i; });
+      var tier = rank >= 0 ? botTierForRank(rank) : null;
+      homeLadderPanelEl.innerHTML = '';
+      var row = document.createElement('div');
+      row.className = 'stat-row';
+      row.textContent = tier
+        ? 'Current rank: ' + tier.avatar + ' ' + tier.name + ' (' + (rank + 1) + ' of ' + ladder.length + ' unlocked)'
+        : 'No bots unlocked yet';
+      homeLadderPanelEl.appendChild(row);
+    }
+
+    var history = loadGameHistory();
+    if (homeRecentFieldEl) homeRecentFieldEl.classList.toggle('hidden', history.length === 0);
+    if (homeRecentListEl) {
+      homeRecentListEl.innerHTML = '';
+      history.slice(-3).reverse().forEach(function (entry) {
+        var r = document.createElement('button');
+        r.type = 'button';
+        r.className = 'history-row';
+        var top = document.createElement('div');
+        top.className = 'history-row-top';
+        var opp = document.createElement('span');
+        opp.textContent = formatOpponents(entry);
+        top.appendChild(opp);
+        r.appendChild(top);
+        var meta = document.createElement('div');
+        meta.className = 'history-row-meta';
+        meta.textContent = new Date(entry.date).toLocaleDateString() + ' · ' + entry.totalMoves + ' moves';
+        r.appendChild(meta);
+        r.addEventListener('click', function () {
+          try {
+            var replay = replayGameFromExport(entry.startCwn, entry.moves);
+            loadGameFromReplay(replay);
+          } catch (e) {
+            window.alert('Could not replay this game: ' + e.message);
+          }
+        });
+        homeRecentListEl.appendChild(r);
+      });
+    }
+  }
+
+  function openHome() {
+    renderHome();
+    showScreen('home');
+  }
+
+  if (homeContinueBtn) homeContinueBtn.addEventListener('click', function () { showScreen('game'); });
+  if (homePuzzleBtn) homePuzzleBtn.addEventListener('click', openPuzzle);
+  if (homePlayBtn) homePlayBtn.addEventListener('click', backToSetup);
+
   // A ?cwn=<encoded position> URL (see shareCurrentPosition) loads straight
   // into that position instead of the normal setup screen - and always wins
   // over whatever route (if any) is also in the URL's hash: a shared board
@@ -2229,25 +2655,32 @@
 
   // Only reached when there's no (valid) ?cwn= - a bookmarked/shared
   // #/games or #/rules link should land there directly rather than always
-  // starting on Play. 'setup' is already the default view, so nothing to do
-  // there. 'game' has no standalone way to initialize from a hash alone -
-  // it needs ?cwn=, an actually-started game, or puzzle mode, none of which
-  // have happened yet at this exact point in a fresh page load - so a bare
-  // #/game with nothing else in the URL is left on the default setup
-  // screen rather than showing an empty, stateless board. Never writes a
-  // hash back here either way - a plain visit's URL stays clean until the
-  // player actually navigates.
+  // starting on Home. 'home' is already the default view (see index.html),
+  // so nothing to do there. 'game' has no standalone way to initialize from
+  // a hash alone - it needs ?cwn=, an actually-started game, or puzzle
+  // mode, none of which have happened yet at this exact point in a fresh
+  // page load - so a bare #/game with nothing else in the URL is left on
+  // the default Home screen rather than showing an empty, stateless board.
+  // Never writes a hash back here either way - a plain visit's URL stays
+  // clean until the player actually navigates.
   if (!loadedFromCwn) {
     var initialRoute = location.hash.replace(/^#\/?/, '');
     var initialScreen = SCREEN_FOR_ROUTE[initialRoute];
     if (initialScreen === 'history') { renderHistoryScreen(); applyScreen('history'); }
-    else if (initialScreen === 'rules') applyScreen('rules');
+    else if (initialScreen === 'bots') { renderBotsScreen(); applyScreen('bots'); }
+    else if (initialScreen === 'engine') { renderEngineScreen(); applyScreen('engine'); }
+    else if (initialScreen === 'settings') { renderSettingsScreen(); applyScreen('settings'); }
+    else if (initialScreen) applyScreen(initialScreen); // rules/home/setup/game - no extra render step needed
   }
 
-  // Every branch above except 'history'/'rules' leaves applyScreen() (and
-  // so renderNav()) never having run at all on a plain load - without this,
-  // #nav-list would sit empty until the next real transition or the
-  // js/puzzles.json fetch happens to resolve.
+  // Every branch above except history/bots/engine/settings leaves that
+  // screen's own render*() never having run - Home in particular is the
+  // static default now, so without this call it would sit empty on a plain
+  // page load until goHome() is clicked once. Also covers renderNav(),
+  // which every branch above needs regardless (keeps #nav-list from
+  // sitting empty until the next real transition or the js/puzzles.json
+  // fetch happens to resolve).
+  renderHome();
   renderNav();
 
   renderPlayerCountButtons();

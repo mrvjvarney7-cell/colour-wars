@@ -34,6 +34,7 @@ TEST_CWN = "dc5/7/7/7/7/7/7 0 - 2"
 SCENARIOS = [
     ("mid-session", ""),
     ("hash-only", "#/rules"),
+    ("hash-bots", "#/bots"),
     ("cwn-no-hash", "?cwn=" + TEST_CWN),
     ("cwn-with-hash", "?cwn=" + TEST_CWN + "#/games"),
 ]

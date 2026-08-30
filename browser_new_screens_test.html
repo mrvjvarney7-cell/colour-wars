@@ -377,6 +377,18 @@
   <script src="js/ai/weights.js?v=55"></script>
   <script src="js/ui.js?v=55"></script>
 <script>
+    // Covers the three remaining new nav screens (Bots, Engine, Settings)
+    // plus Home, the logo's destination and the new default landing page.
+    // Bots/Engine reuse the exact same ladder/index.json data the setup
+    // screen's version picker already relies on (see
+    // browser_bot_ladder_test.html for the sibling test of THAT picker) -
+    // this test seeds the identical "beat iteration 3 (Rookie)" history so
+    // the two tests' assumptions about real repo data (rank 0 = iteration 3)
+    // stay in one place conceptually. Settings' "Clear local data" is only
+    // exercised on the DECLINE path here - the accept path just deletes a
+    // few localStorage keys and calls location.reload(), which is small
+    // enough to read directly, and actually reloading mid-test would abandon
+    // every check still queued after it.
     (function () {
       'use strict';
       var errors = [];
@@ -384,69 +396,177 @@
         errors.push(String(msg) + ' @' + line + ':' + col);
         return false;
       };
+      function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
+      function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
 
-      function report(obj) {
-        document.title = 'RESULT:' + JSON.stringify(obj);
+      window.confirm = function () { return true; };
+
+      ['colourwars-history', 'colourwars-theme', 'colourwars-sidebar-collapsed',
+       'colourwars-ai-simulations', 'colourwars-ai-insight-default', 'colourwars-policy-heatmap-default']
+        .forEach(function (key) { localStorage.removeItem(key); });
+
+      // Same seed as browser_bot_ladder_test.html: a human (seat 0) beat
+      // iteration 3 (Rookie, rank 0 of the real ladder) exactly once.
+      localStorage.setItem('colourwars-history', JSON.stringify([{
+        date: new Date().toISOString(), numPlayers: 2,
+        players: [{ name: 'Player 1', isAI: false, aiIteration: null }, { name: 'Player 2', isAI: true, aiIteration: 3 }],
+        winnerIndex: 0, totalMoves: 5, longestChain: 1,
+        startCwn: '7/7/7/7/7/7/7 0 01 0', moves: ['d4', 'a1']
+      }]));
+
+      function navItemByLabel(label) {
+        var buttons = document.querySelectorAll('#nav-list .nav-item');
+        for (var i = 0; i < buttons.length; i++) {
+          if (buttons[i].textContent.trim().indexOf(label) === 0) return buttons[i];
+        }
+        return null;
+      }
+      function buttonByText(selector, text) {
+        var buttons = document.querySelectorAll(selector);
+        for (var i = 0; i < buttons.length; i++) {
+          if (buttons[i].textContent.trim() === text) return buttons[i];
+        }
+        return null;
       }
 
-      function fail(reason) {
-        report({ ok: false, reason: reason, errors: errors });
+      function runBotsChecks() {
+        var cards = document.querySelectorAll('#bot-roster .bot-card');
+        var rookieCard = null, challengerCard = null, veteranCard = null;
+        for (var i = 0; i < cards.length; i++) {
+          var name = cards[i].querySelector('.bot-card-name').textContent;
+          if (name === 'Rookie') rookieCard = cards[i];
+          else if (name === 'Challenger') challengerCard = cards[i];
+          else if (name === 'Veteran') veteranCard = cards[i];
+        }
+        var botsCheck = {
+          ok: !!rookieCard && !rookieCard.classList.contains('locked') &&
+              rookieCard.querySelector('.bot-card-record').textContent.indexOf('1-0') !== -1 &&
+              !!challengerCard && !challengerCard.classList.contains('locked') &&
+              (!veteranCard || veteranCard.classList.contains('locked')),
+          cardCount: cards.length
+        };
+        document.getElementById('back-from-bots-btn').click();
+        runEngineChecks(botsCheck);
       }
 
-      try {
-        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
-        if (typeof MCTS === 'undefined') return fail('MCTS did not load');
-        if (typeof AI_WEIGHTS === 'undefined') return fail('AI_WEIGHTS did not load');
-
-        // Make Player 1 (seat 0) the AI - the exact reported bug scenario.
-        var rows = document.querySelectorAll('#player-list .player-row');
-        if (rows.length !== 2) return fail('expected 2 player rows by default, got ' + rows.length);
-        rows[0].querySelector('.ai-toggle-btn').click();
-
-        rows = document.querySelectorAll('#player-list .player-row');
-        var toggles = [];
-        rows.forEach(function (r) { toggles.push(r.querySelector('.ai-toggle-btn').classList.contains('active')); });
-        if (JSON.stringify(toggles) !== JSON.stringify([true, false])) {
-          return fail('expected only seat 0 to be AI, got ' + JSON.stringify(toggles));
-        }
-
-        document.getElementById('start-game-btn').click();
-        if (document.getElementById('setup-screen').classList.contains('hidden') === false) {
-          return fail('setup screen did not hide after Start Game');
-        }
-        if (document.getElementById('game-screen').classList.contains('hidden')) {
-          return fail('game screen did not show after Start Game');
-        }
-
+      function runEngineChecks(botsCheck) {
+        document.getElementById('hamburger-btn').click();
+        navItemByLabel('Engine').click();
         var pollCount = 0;
-        var maxPolls = 400; // 400 * 150ms = 60s ceiling
-        var thinkingWasShown = false;
-
-        var poll = setInterval(function () {
+        (function wait() {
           pollCount++;
-          var thinkingEl = document.getElementById('ai-thinking');
-          if (!thinkingEl.classList.contains('hidden')) thinkingWasShown = true;
-          var owned = document.querySelectorAll('.cell.owned').length;
-          var stillThinking = !thinkingEl.classList.contains('hidden');
-          var turnLabel = document.getElementById('turn-label').textContent;
-
-          if (!stillThinking && owned >= 1) {
-            clearInterval(poll);
-            report({
-              ok: errors.length === 0 && owned === 1 && turnLabel.indexOf('Player 2') === 0,
-              errors: errors,
-              thinkingWasShown: thinkingWasShown,
-              ownedAfterAiOpening: owned,
-              turnLabel: turnLabel
-            });
-          } else if (pollCount >= maxPolls) {
-            clearInterval(poll);
-            fail('AI seat 0 never played its opening move - stuck (owned=' + owned + ', turnLabel=' + turnLabel + ')');
+          var svg = document.querySelector('#engine-chart svg');
+          if (svg) {
+            var statRows = document.querySelectorAll('#engine-stats-panel .stat-row');
+            var hasPromotedLine = false;
+            for (var i = 0; i < statRows.length; i++) {
+              if (statRows[i].textContent.indexOf('Promoted iterations:') === 0) hasPromotedLine = true;
+            }
+            var engineCheck = { ok: !!svg && statRows.length > 0 && hasPromotedLine };
+            document.getElementById('back-from-engine-btn').click();
+            runSettingsChecks(botsCheck, engineCheck);
+          } else if (pollCount >= 50) {
+            document.getElementById('back-from-engine-btn').click();
+            runSettingsChecks(botsCheck, { ok: false, reason: 'engine chart never rendered' });
+          } else {
+            setTimeout(wait, 100);
           }
-        }, 150);
-      } catch (e) {
-        fail('exception: ' + e.message);
+        })();
       }
+
+      function runSettingsChecks(botsCheck, engineCheck) {
+        try {
+          document.getElementById('hamburger-btn').click();
+          navItemByLabel('Settings').click();
+
+          buttonByText('#settings-theme-buttons button', 'Light').click();
+          var themeCheck = {
+            ok: document.documentElement.getAttribute('data-theme') === 'light' &&
+                localStorage.getItem('colourwars-theme') === 'light'
+          };
+
+          buttonByText('#settings-think-time-buttons button', 'Strong').click();
+          var thinkTimeCheck = { ok: localStorage.getItem('colourwars-ai-simulations') === '150' };
+
+          var insightCheckbox = document.getElementById('settings-ai-insight-default-input');
+          insightCheckbox.checked = false;
+          insightCheckbox.dispatchEvent(new Event('change'));
+          var defaultsCheck = {
+            ok: localStorage.getItem('colourwars-ai-insight-default') === 'false' &&
+                document.getElementById('ai-insight-toggle-input').checked === false
+          };
+
+          window.confirm = function () { return false; }; // decline only - see file header
+          document.getElementById('clear-local-data-btn').click();
+          var clearDeclineCheck = { ok: localStorage.getItem('colourwars-history') !== null };
+          window.confirm = function () { return true; };
+
+          document.getElementById('back-from-settings-btn').click();
+
+          runHomeChecks(botsCheck, engineCheck, {
+            theme: themeCheck, thinkTime: thinkTimeCheck, defaults: defaultsCheck, clearDecline: clearDeclineCheck
+          });
+        } catch (e) {
+          fail('exception in runSettingsChecks: ' + e.message);
+        }
+      }
+
+      function runHomeChecks(botsCheck, engineCheck, settingsChecks) {
+        try {
+          document.getElementById('nav-logo-link').click(); // no game yet - no confirm gate to clear
+          var homeBaseline = {
+            homeVisible: !document.getElementById('home-screen').classList.contains('hidden'),
+            continueHidden: document.getElementById('home-continue-field').classList.contains('hidden'),
+            ladderVisible: !document.getElementById('home-ladder-field').classList.contains('hidden')
+          };
+
+          document.getElementById('home-play-btn').click();
+          document.getElementById('start-game-btn').click();
+          document.querySelector('.cell[data-row="3"][data-col="3"]').click();
+
+          setTimeout(function () {
+            document.getElementById('nav-logo-link').click(); // mid-game -> confirm gate (stubbed true)
+            var afterLeaveGame = {
+              homeVisible: !document.getElementById('home-screen').classList.contains('hidden'),
+              continueVisible: !document.getElementById('home-continue-field').classList.contains('hidden')
+            };
+            document.getElementById('home-continue-btn').click();
+            var afterContinue = {
+              gameVisible: !document.getElementById('game-screen').classList.contains('hidden')
+            };
+
+            report({
+              ok: errors.length === 0 && botsCheck.ok && engineCheck.ok &&
+                  settingsChecks.theme.ok && settingsChecks.thinkTime.ok &&
+                  settingsChecks.defaults.ok && settingsChecks.clearDecline.ok &&
+                  homeBaseline.homeVisible && homeBaseline.continueHidden && homeBaseline.ladderVisible &&
+                  afterLeaveGame.homeVisible && afterLeaveGame.continueVisible &&
+                  afterContinue.gameVisible,
+              errors: errors,
+              botsCheck: botsCheck, engineCheck: engineCheck, settingsChecks: settingsChecks,
+              homeBaseline: homeBaseline, afterLeaveGame: afterLeaveGame, afterContinue: afterContinue
+            });
+          }, 400);
+        } catch (e) {
+          fail('exception in runHomeChecks: ' + e.message);
+        }
+      }
+
+      document.getElementById('hamburger-btn').click();
+      navItemByLabel('Bots').click();
+
+      var botsPollCount = 0;
+      (function waitForBots() {
+        botsPollCount++;
+        var cards = document.querySelectorAll('#bot-roster .bot-card');
+        if (cards.length > 0) {
+          runBotsChecks();
+        } else if (botsPollCount >= 50) {
+          fail('bot roster never populated (index.json fetch may have failed)');
+        } else {
+          setTimeout(waitForBots, 100);
+        }
+      })();
     })();
   </script>
 </body>

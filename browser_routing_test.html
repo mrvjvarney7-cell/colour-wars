@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=54">
+<link rel="stylesheet" href="style.css?v=55">
 </head>
 <body>
 
@@ -31,7 +31,7 @@
        removed by JS only while actually acting as a mobile dialog. -->
   <nav class="nav-panel" id="nav-panel" aria-label="Navigation" tabindex="-1">
     <div class="nav-panel-header">
-      <a class="nav-logo-link" id="nav-logo-link" href="#/play" aria-label="Colour Wars home">
+      <a class="nav-logo-link" id="nav-logo-link" href="#/home" aria-label="Colour Wars home">
         <svg class="app-logo" viewBox="0 0 32 32" width="24" height="24" aria-hidden="true" focusable="false">
           <rect x="2" y="2" width="13" height="13" rx="3" fill="#2563eb"/>
           <rect x="17" y="2" width="13" height="13" rx="3" fill="#16a34a"/>
@@ -86,7 +86,7 @@
         <span class="hamburger-line"></span>
         <span class="hamburger-line"></span>
       </button>
-      <a class="topbar-logo-link" id="topbar-logo-link" href="#/play" aria-label="Colour Wars home">
+      <a class="topbar-logo-link" id="topbar-logo-link" href="#/home" aria-label="Colour Wars home">
         <svg class="app-logo" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true" focusable="false">
           <rect x="2" y="2" width="13" height="13" rx="3" fill="#2563eb"/>
           <rect x="17" y="2" width="13" height="13" rx="3" fill="#16a34a"/>
@@ -102,8 +102,42 @@
     </header>
 
     <div class="app-main" id="app-main">
+      <!-- Home - the logo's destination, and the actual default landing
+           page (see js/ui.js's bootstrap - Home starts unhidden, Setup
+           starts hidden, the reverse of before this screen existed). Every
+           field here is populated from data that already exists elsewhere
+           (in-memory game state, local history, the ladder helpers used by
+           Bots/setup) and hidden entirely when there's nothing to show. -->
+      <section id="home-screen" class="screen">
+        <div class="setup-card">
+          <h1 class="title">Colour Wars</h1>
+          <p class="subtitle">Pass-and-play chain reaction strategy</p>
+
+          <div class="field hidden" id="home-continue-field">
+            <button id="home-continue-btn" class="primary-btn" type="button">Continue game</button>
+          </div>
+
+          <div class="field hidden" id="home-puzzle-field">
+            <div class="field-label">Daily puzzle</div>
+            <button id="home-puzzle-btn" class="secondary-btn" type="button">Play today's puzzle</button>
+          </div>
+
+          <div class="field hidden" id="home-ladder-field">
+            <div class="field-label">Bot ladder</div>
+            <div class="stats-panel" id="home-ladder-panel"></div>
+          </div>
+
+          <div class="field hidden" id="home-recent-field">
+            <div class="field-label">Recent results</div>
+            <div class="history-list" id="home-recent-list"></div>
+          </div>
+
+          <button id="home-play-btn" class="primary-btn" type="button">Play a new game</button>
+        </div>
+      </section>
+
       <!-- Setup screen (the "Play" nav item's destination) -->
-      <section id="setup-screen" class="screen">
+      <section id="setup-screen" class="screen hidden">
         <div class="setup-card">
           <h1 class="title">Colour Wars</h1>
           <p class="subtitle">Pass-and-play chain reaction strategy</p>
@@ -201,6 +235,77 @@
         </div>
       </section>
 
+      <!-- Bots - a read-only roster view of the same ladder data the setup
+           screen's per-seat version picker already computes (BOT_LADDER,
+           ladderVersionsAscending, isBotUnlocked in js/ui.js) - opponents to
+           browse, not a <select> to fill in. Choosing who to actually play
+           still happens on Play. -->
+      <section id="bots-screen" class="screen hidden">
+        <div class="setup-card">
+          <h1 class="title">Bots</h1>
+          <p class="subtitle">Beat one tier to unlock the next</p>
+          <div class="field">
+            <div class="bot-roster" id="bot-roster"></div>
+          </div>
+          <button id="back-from-bots-btn" class="primary-btn" type="button">Back</button>
+        </div>
+      </section>
+
+      <!-- Engine - the same js/ai/versions/index.json already fetched for
+           the setup screen's version picker, shown as an Elo curve instead
+           of a dropdown. -->
+      <section id="engine-screen" class="screen hidden">
+        <div class="setup-card">
+          <h1 class="title">Engine</h1>
+          <p class="subtitle">Elo across every promoted iteration</p>
+          <div class="field">
+            <div id="engine-chart" class="engine-chart"></div>
+          </div>
+          <div class="field">
+            <div class="stats-panel" id="engine-stats-panel"></div>
+          </div>
+          <button id="back-from-engine-btn" class="primary-btn" type="button">Back</button>
+        </div>
+      </section>
+
+      <!-- Settings - device-local preferences only (static site, no
+           account/backend to sync them to). -->
+      <section id="settings-screen" class="screen hidden">
+        <div class="setup-card">
+          <h1 class="title">Settings</h1>
+
+          <div class="field">
+            <div class="field-label">Theme</div>
+            <div id="settings-theme-buttons" class="segmented cols-2"></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">AI think time</div>
+            <div id="settings-think-time-buttons" class="segmented"></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">Defaults for new games</div>
+            <label class="ai-insight-toggle" id="settings-ai-insight-default-row">
+              <input type="checkbox" id="settings-ai-insight-default-input">
+              Show AI thinking status by default
+            </label>
+            <label class="ai-insight-toggle" id="settings-policy-heatmap-default-row">
+              <input type="checkbox" id="settings-policy-heatmap-default-input">
+              Show policy heatmap by default
+            </label>
+          </div>
+
+          <div class="field">
+            <div class="field-label">Data</div>
+            <button id="clear-local-data-btn" class="secondary-btn" type="button">Clear local data</button>
+            <p class="settings-data-note">Removes your theme, AI defaults and local game history from this device. This cannot be undone.</p>
+          </div>
+
+          <button id="back-from-settings-btn" class="primary-btn" type="button">Back</button>
+        </div>
+      </section>
+
       <!-- Game screen -->
       <section id="game-screen" class="screen hidden">
         <div class="game-layout">
@@ -265,12 +370,12 @@
     </div>
   </div>
 
-  <script src="js/gameLogic.js?v=54"></script>
-  <script src="js/ai/encode.js?v=54"></script>
-  <script src="js/ai/network.js?v=54"></script>
-  <script src="js/ai/mcts.js?v=54"></script>
-  <script src="js/ai/weights.js?v=54"></script>
-  <script src="js/ui.js?v=54"></script>
+  <script src="js/gameLogic.js?v=55"></script>
+  <script src="js/ai/encode.js?v=55"></script>
+  <script src="js/ai/network.js?v=55"></script>
+  <script src="js/ai/mcts.js?v=55"></script>
+  <script src="js/ai/weights.js?v=55"></script>
+  <script src="js/ui.js?v=55"></script>
 <script>
     // Covers hash routing (added on top of showScreen()): nav-equivalent
     // actions keep location.hash in sync, a bare hash write (simulating the
@@ -338,18 +443,35 @@
           }
 
           if (initialHash && initialHash !== '#/play') {
+            // Generalized over every real route (not just Rules) so the same
+            // fixture/scenario also covers a bookmarked #/bots, #/engine, or
+            // #/settings link landing directly on that screen - see
+            // run_browser_routing_test.py's SCENARIOS list.
+            var routeToScreen = {
+              '#/rules': 'rules-screen', '#/bots': 'bots-screen',
+              '#/engine': 'engine-screen', '#/settings': 'settings-screen', '#/home': 'home-screen'
+            };
+            var expectedScreen = routeToScreen[initialHash];
             report({
-              ok: errors.length === 0 && isVisible('rules-screen') && !isVisible('setup-screen'),
+              ok: errors.length === 0 && !!expectedScreen && isVisible(expectedScreen) && !isVisible('setup-screen'),
               errors: errors,
               scenario: 'hash-only',
               initialHash: initialHash,
-              rulesVisible: isVisible('rules-screen'),
+              expectedScreen: expectedScreen,
+              expectedVisible: expectedScreen ? isVisible(expectedScreen) : null,
               setupVisible: isVisible('setup-screen')
             });
             return;
           }
 
           var checks = {};
+          // Home is the actual default landing page now (see index.html) -
+          // a plain load with no ?cwn= and no hash should show it before any
+          // interaction at all.
+          checks.initialLoad = {
+            homeVisible: isVisible('home-screen'),
+            setupVisible: isVisible('setup-screen')
+          };
 
           document.getElementById('hamburger-btn').click();
           clickNavItemByLabel('Games');
@@ -368,6 +490,24 @@
 
           document.getElementById('back-from-rules-btn').click();
           checks.afterCloseRules = { hash: location.hash, setupVisible: isVisible('setup-screen') };
+
+          document.getElementById('hamburger-btn').click();
+          clickNavItemByLabel('Bots');
+          checks.afterOpenBots = { hash: location.hash, botsVisible: isVisible('bots-screen') };
+          document.getElementById('back-from-bots-btn').click();
+          checks.afterCloseBots = { hash: location.hash, setupVisible: isVisible('setup-screen') };
+
+          document.getElementById('hamburger-btn').click();
+          clickNavItemByLabel('Engine');
+          checks.afterOpenEngine = { hash: location.hash, engineVisible: isVisible('engine-screen') };
+          document.getElementById('back-from-engine-btn').click();
+          checks.afterCloseEngine = { hash: location.hash, setupVisible: isVisible('setup-screen') };
+
+          document.getElementById('hamburger-btn').click();
+          clickNavItemByLabel('Settings');
+          checks.afterOpenSettings = { hash: location.hash, settingsVisible: isVisible('settings-screen') };
+          document.getElementById('back-from-settings-btn').click();
+          checks.afterCloseSettings = { hash: location.hash, setupVisible: isVisible('setup-screen') };
 
           // Simulate the browser's own back/forward: a bare hash write, no
           // button click at all - exactly what popping browser history does.
@@ -395,11 +535,18 @@
                 };
 
                 var ok = errors.length === 0 &&
+                  checks.initialLoad.homeVisible && !checks.initialLoad.setupVisible &&
                   checks.afterOpenHistory.hash === '#/games' && checks.afterOpenHistory.historyVisible &&
                   checks.afterOpenHistory.hasStatsRendered &&
                   checks.afterCloseHistory.hash === '#/play' && checks.afterCloseHistory.setupVisible &&
                   checks.afterOpenRules.hash === '#/rules' && checks.afterOpenRules.rulesVisible &&
                   checks.afterCloseRules.hash === '#/play' && checks.afterCloseRules.setupVisible &&
+                  checks.afterOpenBots.hash === '#/bots' && checks.afterOpenBots.botsVisible &&
+                  checks.afterCloseBots.hash === '#/play' && checks.afterCloseBots.setupVisible &&
+                  checks.afterOpenEngine.hash === '#/engine' && checks.afterOpenEngine.engineVisible &&
+                  checks.afterCloseEngine.hash === '#/play' && checks.afterCloseEngine.setupVisible &&
+                  checks.afterOpenSettings.hash === '#/settings' && checks.afterOpenSettings.settingsVisible &&
+                  checks.afterCloseSettings.hash === '#/play' && checks.afterCloseSettings.setupVisible &&
                   checks.afterSimulatedBackToGames.historyVisible && !checks.afterSimulatedBackToGames.setupVisible &&
                   checks.afterSimulatedForwardToRules.rulesVisible && !checks.afterSimulatedForwardToRules.historyVisible &&
                   checks.afterUnknownRoute.rulesStillVisible;
