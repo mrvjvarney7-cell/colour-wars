@@ -53,6 +53,22 @@ def win_rate_to_elo_diff(win_rate: float) -> float:
     return 400.0 * math.log10(s / (1.0 - s))
 
 
+def write_eval_breakdown(iteration: int, gating_result: dict) -> str:
+    """Persists the full per-opening gating breakdown (wins/draws/losses,
+    every opening's own candidate_seat/decided/candidate_score/move_count/
+    reason - see evaluate_vs_checkpoint_2p_paired's docstring) so a gate
+    result can be audited after the fact instead of trusting a single
+    win-rate number. Pulled out as its own function specifically so it's a
+    unit the test suite can call and assert against directly
+    (test_eval_breakdown_persistence.py) - this exact write silently
+    stopped happening once before (a live process ran code from before this
+    line existed) with nothing catching it until it was needed weeks later."""
+    breakdown_path = os.path.join(CHECKPOINT_DIR, f"eval_breakdown_iter{iteration}.json")
+    with open(breakdown_path, "w") as f:
+        json.dump(gating_result, f)
+    return breakdown_path
+
+
 def append_log(record: dict):
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     with open(TRAINING_LOG_PATH, "a") as f:
@@ -361,9 +377,7 @@ def main():
               f"({gating_result['wins']}W/{gating_result['draws']}D/{gating_result['losses']}L "
               f"of {gating_result['attempted']} attempted, draws scored 0.5 each)")
 
-        breakdown_path = os.path.join(CHECKPOINT_DIR, f"eval_breakdown_iter{iteration}.json")
-        with open(breakdown_path, "w") as f:
-            json.dump(gating_result, f)
+        write_eval_breakdown(iteration, gating_result)
 
         win_rate_vs_random = evaluate_vs_random(
             net, device, num_games=args.eval_games, num_simulations=args.eval_simulations
