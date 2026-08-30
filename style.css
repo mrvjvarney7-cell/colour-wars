@@ -81,6 +81,10 @@ body {
 
 .app-shell {
   display: flex;
+  flex-direction: column; /* topbar above content on mobile - row is only for
+    the >=860px sidebar layout, and that's a row between nav-panel and
+    .app-shell as a whole (see body's own flex-direction below), not inside
+    .app-shell itself */
   min-height: 100dvh;
   width: 100%;
 }
@@ -312,6 +316,15 @@ body.is-animating .nav-scrim {
 }
 
 @media (min-width: 860px) {
+  /* nav-panel and .app-shell are plain siblings under <body> - on mobile
+     that's fine (nav-panel is position:fixed there, out of normal flow
+     regardless), but once it switches to position:static below, body needs
+     to actually lay them out as a row or they just stack: a narrow block
+     the height of the nav list, then the full-width page starting below
+     it, which looks like empty space above a form pinned near the bottom
+     rather than a sidebar beside the content. */
+  body { display: flex; }
+
   .topbar { display: none; }
   .nav-scrim { display: none; } /* the sidebar is persistent chrome at this width, never a modal overlay */
 
