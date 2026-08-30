@@ -584,14 +584,16 @@
   // ---------- Bot ladder (T8) ----------
   // Same underlying data as before (one promoted checkpoint per entry) -
   // presented as opponents with a name/avatar/rating instead of raw build
-  // artefacts ("iteration 29"), with progressive unlock: each tier opens up
-  // once a human has beaten the tier below it at least once (per T7's local
-  // history - no separate unlock-tracking storage needed). Ranked oldest
-  // (weakest) to newest (strongest) among whatever's actually been
-  // promoted, excluding the current default build (see buildVersionOptions -
-  // "Latest" is a separate, always-available dev-default entry, not part of
-  // the ladder to climb). Falls back to "Tier N" for any rank beyond the
-  // named list, so this never breaks as more iterations get promoted.
+  // artefacts ("iteration 29"). Every promoted iteration is playable
+  // immediately - the tier name/avatar is flavour, not a gate (there used
+  // to be a progressive-unlock requirement here; removed on request, so any
+  // two iterations - including two bots against each other, no human seat
+  // required - can be picked directly). Ranked oldest (weakest) to newest
+  // (strongest) among whatever's actually been promoted, excluding the
+  // current default build (see buildVersionOptions - "Latest" is a
+  // separate, always-available dev-default entry, not part of the ladder).
+  // Falls back to "Tier N" for any rank beyond the named list, so this
+  // never breaks as more iterations get promoted.
   var BOT_LADDER = [
     { name: 'Rookie', avatar: '🌱' },
     { name: 'Challenger', avatar: '⚔️' },
@@ -613,37 +615,18 @@
       .sort(function (a, b) { return a.iteration - b.iteration; });
   }
 
-  // A bot is unlocked if it's rank 0 (always playable) or a human has beaten
-  // the PREVIOUS tier at least once - "beaten" per computeHistoryStats'
-  // per-bot win tracking (games with exactly one AI seat, that seat lost).
-  function isBotUnlocked(rank, laddder) {
-    if (rank === 0) return true;
-    var previous = laddder[rank - 1];
-    if (!previous) return true;
-    var stats = computeHistoryStats(loadGameHistory());
-    var record = stats.byBot[String(previous.iteration)];
-    return !!(record && record.wins > 0);
-  }
-
   function buildVersionOptions() {
     var opts = [];
     if (defaultIteration != null) {
       var defInfo = versionInfoByIteration[defaultIteration] || {};
-      opts.push({ value: '', label: 'Latest (iteration ' + defaultIteration + ')' + formatEloForDisplay(defInfo), disabled: false });
+      opts.push({ value: '', label: 'Latest (iteration ' + defaultIteration + ')' + formatEloForDisplay(defInfo) });
     }
     var ladder = ladderVersionsAscending();
     ladder.forEach(function (v, rank) {
       var tier = botTierForRank(rank);
-      var unlocked = isBotUnlocked(rank, ladder);
-      var label;
-      if (unlocked) {
-        label = tier.avatar + ' ' + tier.name + formatEloForDisplay(v) +
-          ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
-      } else {
-        var previousTier = botTierForRank(rank - 1);
-        label = '🔒 Locked - beat ' + previousTier.name + ' to unlock';
-      }
-      opts.push({ value: String(v.iteration), label: label, disabled: !unlocked });
+      var label = tier.avatar + ' ' + tier.name + formatEloForDisplay(v) +
+        ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+      opts.push({ value: String(v.iteration), label: label });
     });
     return opts;
   }
@@ -664,15 +647,14 @@
         var opt = document.createElement('option');
         opt.value = o.value;
         opt.textContent = o.label;
-        opt.disabled = o.disabled;
         sel.appendChild(opt);
       });
-      // A previously-picked bot that's since become re-locked (shouldn't
-      // normally happen, but a cleared history could do it) falls back to
-      // the default rather than leaving the select on a disabled option.
+      // Falls back to the default if the previously-picked iteration isn't
+      // in the freshly-built list at all (e.g. index.json hadn't loaded yet
+      // when this row was first rendered).
       var wanted = (p.aiVersionIteration == null) ? '' : String(p.aiVersionIteration);
       var wantedOption = Array.prototype.filter.call(sel.options, function (o) { return o.value === wanted; })[0];
-      sel.value = (wantedOption && !wantedOption.disabled) ? wanted : '';
+      sel.value = wantedOption ? wanted : '';
     }
   }
 
@@ -683,8 +665,9 @@
   // Read-only roster view of the same ladder data buildVersionOptions()
   // already computes for the setup screen's <select> - presented as cards
   // to browse rather than options to pick, since picking who to actually
-  // play against still happens on Play. Recomputed on every open so a bot
-  // just unlocked by a finished game shows unlocked immediately.
+  // play against still happens on Play. Every entry is playable immediately
+  // (no unlock gating - see the Bot ladder comment above); each card just
+  // shows your own win/loss record against that iteration, if any.
   function renderBotsScreen() {
     if (!botRosterEl) return;
     botRosterEl.innerHTML = '';
@@ -699,13 +682,12 @@
     var stats = computeHistoryStats(loadGameHistory());
     ladder.forEach(function (v, rank) {
       var tier = botTierForRank(rank);
-      var unlocked = isBotUnlocked(rank, ladder);
       var card = document.createElement('div');
-      card.className = 'bot-card' + (unlocked ? '' : ' locked');
+      card.className = 'bot-card';
 
       var avatar = document.createElement('div');
       avatar.className = 'bot-card-avatar';
-      avatar.textContent = unlocked ? tier.avatar : '🔒';
+      avatar.textContent = tier.avatar;
       card.appendChild(avatar);
 
       var body = document.createElement('div');
@@ -718,13 +700,8 @@
 
       var meta = document.createElement('div');
       meta.className = 'bot-card-meta';
-      if (unlocked) {
-        meta.textContent = 'Iteration ' + v.iteration + formatEloForDisplay(v) +
-          ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
-      } else {
-        var previousTier = botTierForRank(rank - 1);
-        meta.textContent = 'Locked - beat ' + previousTier.name + ' to unlock';
-      }
+      meta.textContent = 'Iteration ' + v.iteration + formatEloForDisplay(v) +
+        ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
       body.appendChild(meta);
 
       var record = stats.byBot[String(v.iteration)];
@@ -2654,15 +2631,24 @@
     var ladder = ladderVersionsAscending();
     if (homeLadderFieldEl) homeLadderFieldEl.classList.toggle('hidden', ladder.length === 0);
     if (homeLadderPanelEl && ladder.length > 0) {
-      var rank = -1;
-      ladder.forEach(function (v, i) { if (isBotUnlocked(i, ladder)) rank = i; });
-      var tier = rank >= 0 ? botTierForRank(rank) : null;
+      // Every bot is playable immediately (no unlock gating), so this shows
+      // an achievement instead of a progress gate: the strongest one you've
+      // actually beaten at least once, per computeHistoryStats' per-bot win
+      // tracking - highest rank with a recorded win, not highest rank
+      // available to play.
+      var stats = computeHistoryStats(loadGameHistory());
+      var bestRank = -1;
+      ladder.forEach(function (v, i) {
+        var record = stats.byBot[String(v.iteration)];
+        if (record && record.wins > 0) bestRank = i;
+      });
+      var tier = bestRank >= 0 ? botTierForRank(bestRank) : null;
       homeLadderPanelEl.innerHTML = '';
       var row = document.createElement('div');
       row.className = 'stat-line';
       row.textContent = tier
-        ? 'Current rank: ' + tier.avatar + ' ' + tier.name + ' (' + (rank + 1) + ' of ' + ladder.length + ' unlocked)'
-        : 'No bots unlocked yet';
+        ? 'Strongest bot beaten: ' + tier.avatar + ' ' + tier.name + ' (iteration ' + ladder[bestRank].iteration + ')'
+        : 'No bots beaten yet';
       homeLadderPanelEl.appendChild(row);
     }
 

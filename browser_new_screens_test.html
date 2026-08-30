@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=58">
+<link rel="stylesheet" href="style.css?v=59">
 </head>
 <body>
 
@@ -237,13 +237,14 @@
 
       <!-- Bots - a read-only roster view of the same ladder data the setup
            screen's per-seat version picker already computes (BOT_LADDER,
-           ladderVersionsAscending, isBotUnlocked in js/ui.js) - opponents to
-           browse, not a <select> to fill in. Choosing who to actually play
-           still happens on Play. -->
+           ladderVersionsAscending in js/ui.js) - opponents to browse, not a
+           <select> to fill in. Every entry is playable immediately, no
+           unlock gating. Choosing who to actually play still happens on
+           Play. -->
       <section id="bots-screen" class="screen hidden">
         <div class="setup-card">
           <h1 class="title">Bots</h1>
-          <p class="subtitle">Beat one tier to unlock the next</p>
+          <p class="subtitle">Every promoted iteration, ready to play</p>
           <div class="field">
             <div class="bot-roster" id="bot-roster"></div>
           </div>
@@ -370,25 +371,27 @@
     </div>
   </div>
 
-  <script src="js/gameLogic.js?v=58"></script>
-  <script src="js/ai/encode.js?v=58"></script>
-  <script src="js/ai/network.js?v=58"></script>
-  <script src="js/ai/mcts.js?v=58"></script>
-  <script src="js/ai/weights.js?v=58"></script>
-  <script src="js/ui.js?v=58"></script>
+  <script src="js/gameLogic.js?v=59"></script>
+  <script src="js/ai/encode.js?v=59"></script>
+  <script src="js/ai/network.js?v=59"></script>
+  <script src="js/ai/mcts.js?v=59"></script>
+  <script src="js/ai/weights.js?v=59"></script>
+  <script src="js/ui.js?v=59"></script>
 <script>
     // Covers the three remaining new nav screens (Bots, Engine, Settings)
     // plus Home, the logo's destination and the new default landing page.
     // Bots/Engine reuse the exact same ladder/index.json data the setup
     // screen's version picker already relies on (see
-    // browser_bot_ladder_test.html for the sibling test of THAT picker) -
-    // this test seeds the identical "beat iteration 3 (Rookie)" history so
-    // the two tests' assumptions about real repo data (rank 0 = iteration 3)
-    // stay in one place conceptually. Settings' "Clear local data" is only
-    // exercised on the DECLINE path here - the accept path just deletes a
-    // few localStorage keys and calls location.reload(), which is small
-    // enough to read directly, and actually reloading mid-test would abandon
-    // every check still queued after it.
+    // browser_bot_ladder_test.html for the sibling test of THAT picker,
+    // which covers there being no unlock gating and a real AI-vs-AI game).
+    // This test seeds a win against iteration 3 (Rookie) purely to check
+    // the per-bot win/loss record display still works - it no longer has
+    // anything to do with unlocking, since every bot is playable regardless
+    // of history now. Settings' "Clear local data" is only exercised on the
+    // DECLINE path here - the accept path just deletes a few localStorage
+    // keys and calls location.reload(), which is small enough to read
+    // directly, and actually reloading mid-test would abandon every check
+    // still queued after it.
     (function () {
       'use strict';
       var errors = [];
@@ -431,18 +434,18 @@
 
       function runBotsChecks() {
         var cards = document.querySelectorAll('#bot-roster .bot-card');
-        var rookieCard = null, challengerCard = null, veteranCard = null;
+        var rookieCard = null;
+        var anyLocked = false;
         for (var i = 0; i < cards.length; i++) {
+          if (cards[i].classList.contains('locked') || cards[i].textContent.indexOf('🔒') !== -1) anyLocked = true;
           var name = cards[i].querySelector('.bot-card-name').textContent;
           if (name === 'Rookie') rookieCard = cards[i];
-          else if (name === 'Challenger') challengerCard = cards[i];
-          else if (name === 'Veteran') veteranCard = cards[i];
         }
+        // No unlock gating any more - every card is playable regardless of
+        // history, and Rookie's own win record (seeded above) still shows.
         var botsCheck = {
-          ok: !!rookieCard && !rookieCard.classList.contains('locked') &&
-              rookieCard.querySelector('.bot-card-record').textContent.indexOf('1-0') !== -1 &&
-              !!challengerCard && !challengerCard.classList.contains('locked') &&
-              (!veteranCard || veteranCard.classList.contains('locked')),
+          ok: !anyLocked && cards.length >= 2 &&
+              !!rookieCard && rookieCard.querySelector('.bot-card-record').textContent.indexOf('1-0') !== -1,
           cardCount: cards.length
         };
         document.getElementById('back-from-bots-btn').click();

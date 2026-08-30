@@ -1,7 +1,9 @@
 """Covers T8 (bot ladder): promoted checkpoints show as named/avatared
-opponents with progressive unlock - rank 0 always unlocked, rank 1 locked
-until a human beats rank 0 (per T7's local history), and it opens up once
-that happens.
+opponents, every one immediately selectable (the progressive-unlock gate
+that used to sit here was removed on request) - and the actual feature that
+removal enables: two different iterations picked for the two AI seats
+actually play each other unattended, start to finish, from a single Start
+Game click.
 
 Run with: python -m colourwars.tests.run_browser_bot_ladder_test
 """
@@ -25,8 +27,8 @@ def main():
 
     result = subprocess.run(
         [edge, "--headless=new", "--disable-gpu", "--no-sandbox", "--allow-file-access-from-files",
-         "--virtual-time-budget=10000", "--dump-dom", file_url],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+         "--virtual-time-budget=180000", "--dump-dom", file_url],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240,
     )
 
     match = re.search(r"<title>RESULT:(.*?)</title>", result.stdout, re.DOTALL)

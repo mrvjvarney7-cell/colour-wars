@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=58">
+<link rel="stylesheet" href="style.css?v=59">
 </head>
 <body>
 
@@ -237,13 +237,14 @@
 
       <!-- Bots - a read-only roster view of the same ladder data the setup
            screen's per-seat version picker already computes (BOT_LADDER,
-           ladderVersionsAscending, isBotUnlocked in js/ui.js) - opponents to
-           browse, not a <select> to fill in. Choosing who to actually play
-           still happens on Play. -->
+           ladderVersionsAscending in js/ui.js) - opponents to browse, not a
+           <select> to fill in. Every entry is playable immediately, no
+           unlock gating. Choosing who to actually play still happens on
+           Play. -->
       <section id="bots-screen" class="screen hidden">
         <div class="setup-card">
           <h1 class="title">Bots</h1>
-          <p class="subtitle">Beat one tier to unlock the next</p>
+          <p class="subtitle">Every promoted iteration, ready to play</p>
           <div class="field">
             <div class="bot-roster" id="bot-roster"></div>
           </div>
@@ -370,13 +371,22 @@
     </div>
   </div>
 
-  <script src="js/gameLogic.js?v=58"></script>
-  <script src="js/ai/encode.js?v=58"></script>
-  <script src="js/ai/network.js?v=58"></script>
-  <script src="js/ai/mcts.js?v=58"></script>
-  <script src="js/ai/weights.js?v=58"></script>
-  <script src="js/ui.js?v=58"></script>
+  <script src="js/gameLogic.js?v=59"></script>
+  <script src="js/ai/encode.js?v=59"></script>
+  <script src="js/ai/network.js?v=59"></script>
+  <script src="js/ai/mcts.js?v=59"></script>
+  <script src="js/ai/weights.js?v=59"></script>
+  <script src="js/ui.js?v=59"></script>
 <script>
+    // Covers the removal of the progressive-unlock gate (every promoted
+    // iteration must be immediately selectable, regardless of local win
+    // history) and the actual feature that removal was for: picking two
+    // different iterations for two AI seats and having them play each
+    // other unattended, start to finish, with zero human clicks beyond
+    // Start Game - commitMove()'s own re-check of maybePlayAiTurn after
+    // every move is what chains consecutive AI turns, so this is really
+    // testing that nothing in the (now-removed) lock UI was accidentally
+    // gating that chain too.
     (function () {
       'use strict';
       var errors = [];
@@ -387,67 +397,82 @@
       function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
       function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
 
+      // No wins recorded anywhere - the old lock mechanic would have kept
+      // every tier past Rookie disabled under this exact history state.
       localStorage.removeItem('colourwars-history');
 
       var rows = document.querySelectorAll('#player-list .player-row');
+      rows[0].querySelector('.ai-toggle-btn').click(); // seat 0 -> AI
       rows[1].querySelector('.ai-toggle-btn').click(); // seat 1 -> AI
 
       var pollCount = 0;
       function waitForOptions() {
         pollCount++;
-        var sel = document.querySelectorAll('#player-list .player-row')[1].querySelector('.player-ai-version-select');
-        if (sel && sel.options.length > 1) {
-          afterOptionsLoaded(sel);
+        var sel0 = document.querySelectorAll('#player-list .player-row')[0].querySelector('.player-ai-version-select');
+        var sel1 = document.querySelectorAll('#player-list .player-row')[1].querySelector('.player-ai-version-select');
+        if (sel0 && sel0.options.length > 2 && sel1 && sel1.options.length > 2) {
+          afterOptionsLoaded(sel0, sel1);
         } else if (pollCount >= 50) {
-          fail('version select never populated (index.json fetch may have failed)');
+          fail('version selects never populated (index.json fetch may have failed, or fewer than 2 promoted iterations exist)');
         } else {
           setTimeout(waitForOptions, 100);
         }
       }
 
-      function optionByPrefix(sel, prefix) {
-        return Array.prototype.filter.call(sel.options, function (o) { return o.textContent.indexOf(prefix) === 0; })[0];
-      }
-
-      function afterOptionsLoaded(sel) {
+      function afterOptionsLoaded(sel0, sel1) {
         try {
-          var rookie = optionByPrefix(sel, '🌱 Rookie');
-          var challengerLocked = optionByPrefix(sel, '🔒 Locked - beat Rookie');
-          var beforeCheck = { ok: true };
-          if (!rookie || rookie.disabled) {
-            beforeCheck = { ok: false, reason: 'expected an enabled Rookie option, got ' + (rookie ? 'disabled' : 'none') };
-          } else if (!challengerLocked) {
-            beforeCheck = { ok: false, reason: 'expected a locked option reading "beat Rookie" before any bot is beaten' };
-          } else if (!challengerLocked.disabled) {
-            beforeCheck = { ok: false, reason: 'the locked option should itself be disabled, not just labelled locked' };
-          }
-
-          // Seed history: a human (seat 0) beat iteration 3 (Rookie) once.
-          localStorage.setItem('colourwars-history', JSON.stringify([{
-            date: new Date().toISOString(), numPlayers: 2,
-            players: [{ name: 'Player 1', isAI: false, aiIteration: null }, { name: 'Player 2', isAI: true, aiIteration: 3 }],
-            winnerIndex: 0, totalMoves: 5, longestChain: 1,
-            startCwn: '7/7/7/7/7/7/7 0 01 0', moves: ['d4', 'a1']
-          }]));
-
-          // Force a fresh render so the select rebuilds with the new unlock state.
-          document.querySelectorAll('#player-list .player-row')[1].querySelector('.ai-toggle-btn').click(); // -> Human
-          document.querySelectorAll('#player-list .player-row')[1].querySelector('.ai-toggle-btn').click(); // -> AI again
-
-          var sel2 = document.querySelectorAll('#player-list .player-row')[1].querySelector('.player-ai-version-select');
-          var challenger = optionByPrefix(sel2, '⚔️ Challenger');
-          var veteranLocked = optionByPrefix(sel2, '🔒 Locked - beat Challenger');
-          var afterCheck = { ok: true };
-          if (!challenger || challenger.disabled) {
-            afterCheck = { ok: false, reason: 'expected Challenger to be unlocked after beating Rookie, got ' + (challenger ? 'disabled' : 'none') };
-          } else if (!veteranLocked || !veteranLocked.disabled) {
-            afterCheck = { ok: false, reason: 'expected the NEXT tier (Veteran) to still be locked' };
-          }
-
-          report({
-            ok: errors.length === 0 && beforeCheck.ok && afterCheck.ok,
-            errors: errors, beforeCheck: beforeCheck, afterCheck: afterCheck
+          var lockedOptions = Array.prototype.filter.call(sel0.options, function (o) {
+            return o.disabled || o.textContent.indexOf('🔒') !== -1;
           });
+          var noLockCheck = lockedOptions.length === 0
+            ? { ok: true }
+            : { ok: false, reason: lockedOptions.length + ' option(s) still locked/disabled: ' +
+                Array.prototype.map.call(lockedOptions, function (o) { return o.textContent; }).join(', ') };
+
+          // Pick two DIFFERENT iterations - oldest and newest available - a
+          // real old-bot-vs-new-bot matchup, not the same checkpoint twice.
+          var realOptions = Array.prototype.filter.call(sel0.options, function (o) { return o.value !== ''; });
+          if (realOptions.length < 2) { fail('need at least 2 promoted iterations besides Latest to run this test'); return; }
+          var oldest = realOptions[0].value;
+          var newest = realOptions[realOptions.length - 1].value;
+          sel0.value = oldest;
+          sel0.dispatchEvent(new Event('change'));
+          sel1.value = newest;
+          sel1.dispatchEvent(new Event('change'));
+
+          // Off, not just left at its default - the 1.4s post-move insight
+          // pause (AI_INSIGHT_DISPLAY_MS) is real per-move UX, not overhead
+          // this test needs to pay for on top of two real checkpoint
+          // fetches and real MCTS search for every move.
+          var insightToggle = document.getElementById('ai-insight-toggle-input');
+          if (insightToggle) insightToggle.checked = false;
+
+          // Zero human seats - Start Game is the only click this test ever
+          // makes from here on. If the two AIs actually play each other,
+          // the move list fills in on its own.
+          document.getElementById('start-game-btn').click();
+
+          var checkCount = 0;
+          (function waitForGameToProgress() {
+            checkCount++;
+            var moveCount = document.querySelectorAll('#move-history-list .move-cell:not(.empty)').length;
+            var gameOverVisible = !document.getElementById('win-screen').classList.contains('hidden');
+            if (gameOverVisible || moveCount >= 4) {
+              report({
+                ok: errors.length === 0 && noLockCheck.ok && (gameOverVisible || moveCount >= 4),
+                errors: errors, noLockCheck: noLockCheck,
+                oldestPicked: oldest, newestPicked: newest,
+                moveCount: moveCount, gameOverVisible: gameOverVisible
+              });
+            } else if (checkCount >= 100) {
+              report({
+                ok: false, reason: 'AI vs AI game never progressed past ' + moveCount + ' unattended moves',
+                errors: errors, noLockCheck: noLockCheck
+              });
+            } else {
+              setTimeout(waitForGameToProgress, 300);
+            }
+          })();
         } catch (e) {
           fail('exception in afterOptionsLoaded: ' + e.message);
         }

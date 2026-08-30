@@ -35,7 +35,7 @@ def main():
     result = subprocess.run(
         [edge, "--headless=new", "--disable-gpu", "--no-sandbox", "--allow-file-access-from-files",
          "--virtual-time-budget=90000", "--dump-dom", file_url],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
     )
 
     match = re.search(r"<title>RESULT:(.*?)</title>", result.stdout, re.DOTALL)

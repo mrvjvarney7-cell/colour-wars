@@ -650,10 +650,6 @@ body.is-animating .nav-scrim {
   border: 1px solid var(--line);
 }
 
-.bot-card.locked {
-  opacity: 0.6;
-}
-
 .bot-card-avatar {
   font-size: 28px;
   flex-shrink: 0;

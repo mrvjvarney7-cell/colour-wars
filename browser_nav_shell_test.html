@@ -12,7 +12,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=58">
+<link rel="stylesheet" href="style.css?v=59">
 </head>
 <body>
 
@@ -237,13 +237,14 @@
 
       <!-- Bots - a read-only roster view of the same ladder data the setup
            screen's per-seat version picker already computes (BOT_LADDER,
-           ladderVersionsAscending, isBotUnlocked in js/ui.js) - opponents to
-           browse, not a <select> to fill in. Choosing who to actually play
-           still happens on Play. -->
+           ladderVersionsAscending in js/ui.js) - opponents to browse, not a
+           <select> to fill in. Every entry is playable immediately, no
+           unlock gating. Choosing who to actually play still happens on
+           Play. -->
       <section id="bots-screen" class="screen hidden">
         <div class="setup-card">
           <h1 class="title">Bots</h1>
-          <p class="subtitle">Beat one tier to unlock the next</p>
+          <p class="subtitle">Every promoted iteration, ready to play</p>
           <div class="field">
             <div class="bot-roster" id="bot-roster"></div>
           </div>
@@ -370,12 +371,12 @@
     </div>
   </div>
 
-  <script src="js/gameLogic.js?v=58"></script>
-  <script src="js/ai/encode.js?v=58"></script>
-  <script src="js/ai/network.js?v=58"></script>
-  <script src="js/ai/mcts.js?v=58"></script>
-  <script src="js/ai/weights.js?v=58"></script>
-  <script src="js/ui.js?v=58"></script>
+  <script src="js/gameLogic.js?v=59"></script>
+  <script src="js/ai/encode.js?v=59"></script>
+  <script src="js/ai/network.js?v=59"></script>
+  <script src="js/ai/mcts.js?v=59"></script>
+  <script src="js/ai/weights.js?v=59"></script>
+  <script src="js/ui.js?v=59"></script>
 <script>
     // Covers the drawer/sidebar shell itself (open/close mechanics, focus
     // handling, gesture, and the mid-game confirm gate) - the OTHER nav
