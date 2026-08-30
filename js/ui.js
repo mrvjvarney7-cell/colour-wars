@@ -1460,15 +1460,56 @@
     return { perPlayer: perPlayer, totalCells: totalCells, totalDotCapacity: totalDotCapacity };
   }
 
+  // One horizontal bar per metric (board share, dot share), split into one
+  // colored segment per player sized to their percentage of `total` - a
+  // stacked territory-control bar showing everyone's share at a glance,
+  // rather than requiring a read-and-compare of the per-row percentages
+  // below. A 0% player (never opened yet, or eliminated - elimination
+  // means 0 cells, which means 0 dots too) contributes no segment at all
+  // rather than a 0-width one.
+  function buildShareBarGroup(label, players, getValue, total) {
+    var group = document.createElement('div');
+    group.className = 'share-bar-group';
+
+    var lbl = document.createElement('div');
+    lbl.className = 'share-bar-label';
+    lbl.textContent = label;
+    group.appendChild(lbl);
+
+    var bar = document.createElement('div');
+    bar.className = 'share-bar';
+    players.forEach(function (p, i) {
+      var v = getValue(i);
+      if (v <= 0 || total <= 0) return;
+      var pct = (v / total) * 100;
+      var seg = document.createElement('div');
+      seg.className = 'share-bar-segment';
+      seg.style.background = p.color;
+      seg.style.width = pct + '%';
+      seg.title = p.name + ': ' + Math.round(pct) + '%';
+      bar.appendChild(seg);
+    });
+    group.appendChild(bar);
+
+    return group;
+  }
+
   // board defaults to the live position; pass a boardHistory snapshot to
   // show the stats for whatever position is currently being browsed.
   function renderStatsPanel(board) {
     statsPanelEl.innerHTML = '';
     var boardStats = computeBoardStats(board);
+
+    statsPanelEl.appendChild(buildShareBarGroup('Board share', state.players,
+      function (i) { return boardStats.perPlayer[i].cells; }, boardStats.totalCells));
+    statsPanelEl.appendChild(buildShareBarGroup('Dot share', state.players,
+      function (i) { return boardStats.perPlayer[i].dots; }, boardStats.totalDotCapacity));
+
     state.players.forEach(function (p, i) {
       var s = boardStats.perPlayer[i];
       var cellPct = Math.round((s.cells / boardStats.totalCells) * 100);
       var dotPct = Math.round((s.dots / boardStats.totalDotCapacity) * 100);
+      var avgPerSquare = s.cells > 0 ? (s.dots / s.cells) : null;
 
       var row = document.createElement('div');
       row.className = 'stat-row';
@@ -1494,53 +1535,91 @@
       dots.innerHTML = '<b>' + s.dots + '</b> dots (' + dotPct + '%)';
       row.appendChild(dots);
 
+      var avg = document.createElement('span');
+      avg.className = 'stat-value';
+      avg.innerHTML = '<b>' + (avgPerSquare === null ? '-' : avgPerSquare.toFixed(1)) + '</b> avg';
+      row.appendChild(avg);
+
       statsPanelEl.appendChild(row);
     });
   }
 
-  // Chess-style move table: one row per round (every player's moved once),
-  // one column per seat, e.g. for a 2p game "1.  e4  c5" / "2.  Nf3  Nc6".
-  // Emits flat children (ply-label, then one cell per seat) with no
-  // per-row wrapper - the CSS grid's own row-wrapping lays them out, since
-  // grid-template-columns below is exactly (numPlayers + 1) wide.
+  // Chess-style move table: one row per round, one column per seat, e.g.
+  // for a 2p game "1.  e4  c5" / "2.  Nf3  Nc6". Emits flat children
+  // (ply-label, then one cell per seat) with no per-row wrapper - the CSS
+  // grid's own row-wrapping lays them out, since grid-template-columns
+  // below is exactly (numPlayers + 1) wide.
+  //
+  // Rows are NOT just moveList sliced into fixed numPlayers-sized chunks -
+  // turn order skips an eliminated player (see gameLogic's elimination
+  // handling), so once someone is out, a naive moveIdx % numPlayers column
+  // assignment drifts: it keeps assuming every seat moves every round, so
+  // the survivors' moves creep sideways into whichever column that math
+  // lands on, rather than staying in their own player's column. Each move
+  // instead carries its own real `seat` (state.currentPlayerIndex at the
+  // moment it was made - see commitMove/replayGameFromExport), and a round
+  // ends - a new row starts - whenever the next move's seat has already
+  // been filled in the current row, i.e. turn order has wrapped back
+  // around. An eliminated seat's column just stops getting filled from
+  // then on; it doesn't get reused or reshuffled into a still-open column.
   function renderMoveHistoryList() {
     var numPlayers = state.players.length;
     moveHistoryListEl.style.gridTemplateColumns = 'auto repeat(' + numPlayers + ', 1fr)';
     moveHistoryListEl.innerHTML = '';
 
-    for (var round = 0; round * numPlayers < moveList.length; round++) {
+    var rows = [];
+    var currentRow = null;
+    var seenSeats = null;
+    for (var moveIdx = 0; moveIdx < moveList.length; moveIdx++) {
+      // seat is always recorded from iteration onward; the moveIdx %
+      // numPlayers fallback only covers a move pushed by in-memory state
+      // from just before this fix (e.g. a game already open across a live
+      // deploy) and is itself subject to the same drift it's patching over.
+      var mv = moveList[moveIdx];
+      var seat = (typeof mv.seat === 'number') ? mv.seat : (moveIdx % numPlayers);
+      if (!currentRow || seenSeats[seat]) {
+        currentRow = [];
+        for (var s = 0; s < numPlayers; s++) currentRow.push(null);
+        seenSeats = {};
+        rows.push(currentRow);
+      }
+      currentRow[seat] = moveIdx;
+      seenSeats[seat] = true;
+    }
+
+    rows.forEach(function (row, roundIdx) {
       var ply = document.createElement('span');
       ply.className = 'move-ply';
-      ply.textContent = (round + 1) + '.';
+      ply.textContent = (roundIdx + 1) + '.';
       moveHistoryListEl.appendChild(ply);
 
       for (var seat = 0; seat < numPlayers; seat++) {
-        var moveIdx = round * numPlayers + seat;
         var cell = document.createElement('span');
         cell.className = 'move-cell';
-        if (moveIdx < moveList.length) {
-          var m = moveList[moveIdx];
-          var boardIdx = moveIdx + 1; // this move produced boardHistory[boardIdx]
+        var idx = row[seat];
+        if (idx !== null) {
+          var m = moveList[idx];
+          var boardIdx = idx + 1; // this move produced boardHistory[boardIdx]
           cell.appendChild(document.createTextNode(m.notation));
           cell.style.color = m.color;
           // Game review (T4) - a quality dot once runGameReview() has
           // analysed this move; absent until/unless a review has run.
-          if (moveReviewData && moveReviewData[moveIdx]) {
+          if (moveReviewData && moveReviewData[idx]) {
             var badge = document.createElement('span');
-            badge.className = 'move-quality move-quality-' + moveReviewData[moveIdx].label;
-            badge.title = moveReviewData[moveIdx].label + ' (' + Math.round(moveReviewData[moveIdx].drop * 100) + 'pp win% drop)';
+            badge.className = 'move-quality move-quality-' + moveReviewData[idx].label;
+            badge.title = moveReviewData[idx].label + ' (' + Math.round(moveReviewData[idx].drop * 100) + 'pp win% drop)';
             cell.appendChild(badge);
           }
           if (boardIdx === viewIndex) cell.classList.add('viewing');
-          cell.addEventListener('click', (function (idx) {
-            return function () { setViewIndex(idx); };
+          cell.addEventListener('click', (function (idx2) {
+            return function () { setViewIndex(idx2); };
           })(boardIdx));
         } else {
           cell.classList.add('empty');
         }
         moveHistoryListEl.appendChild(cell);
       }
-    }
+    });
 
     var viewingCell = moveHistoryListEl.querySelector('.move-cell.viewing');
     if (viewingCell) viewingCell.scrollIntoView({ block: 'nearest' });
@@ -1705,7 +1784,7 @@
       if (epoch !== gameEpoch) return;
       var wasLive = isViewingLive();
       state = result.state;
-      moveList.push({ color: movingColor, notation: toAlgebraic(r, c) });
+      moveList.push({ color: movingColor, notation: toAlgebraic(r, c), seat: movingPlayerId });
       boardHistory.push(state.board);
       stateHistory.push(state);
       // If a browsed-back view was already showing an older position, leave
@@ -2452,7 +2531,7 @@
       replayState = result.state;
       replayBoardHistory.push(replayState.board);
       replayStateHistory.push(replayState);
-      replayMoveList.push({ color: color, notation: moves[i] });
+      replayMoveList.push({ color: color, notation: moves[i], seat: mover });
     }
     return {
       state: replayState, boardHistory: replayBoardHistory, stateHistory: replayStateHistory,

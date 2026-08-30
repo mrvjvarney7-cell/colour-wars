@@ -377,6 +377,27 @@
   <script src="js/ai/weights.js?v=58"></script>
   <script src="js/ui.js?v=58"></script>
 <script>
+    // Covers the move-history table's column assignment once a player is
+    // eliminated mid-game. Before this fix, renderMoveHistoryList() assumed
+    // every seat moves every round (column = moveIdx % numPlayers) - once
+    // turn order started skipping an eliminated seat, survivors' moves
+    // drifted sideways into whatever column that stale arithmetic produced
+    // instead of staying in their own player's column.
+    //
+    // Simulates a real 4-player game with GameLogic directly (not through
+    // the UI - there's no reliable way to script a human into causing a
+    // specific elimination via clicks), using a seeded PRNG so a failure is
+    // reproducible, picking a uniformly random LEGAL move each turn until a
+    // real elimination happens (state.players[i].active goes false) and a
+    // few rounds pass afterward. Ground truth per move is {notation, seat}
+    // recorded the exact same way commitMove/replayGameFromExport do
+    // (state.currentPlayerIndex at the moment of the move). That game is
+    // then fed through the app's own real Import flow (window.prompt
+    // stubbed) - the actual code path a saved/shared game uses - and the
+    // rendered #move-history-list is checked cell-by-cell against an
+    // independently-computed expected layout using the same
+    // "new row when this seat already appears in the current row" rule the
+    // fix implements.
     (function () {
       'use strict';
       var errors = [];
@@ -387,75 +408,140 @@
       function report(obj) { document.title = 'RESULT:' + JSON.stringify(obj); }
       function fail(reason) { report({ ok: false, reason: reason, errors: errors }); }
 
-      try {
-        if (typeof GameLogic === 'undefined') return fail('GameLogic did not load');
+      var GL = window.GameLogic;
+      var NUM_PLAYERS = 4;
 
-        var target = document.querySelector('.cell[data-row="0"][data-col="1"]');
-        if (target) target.click();
-
-        setTimeout(function () {
-          var winVisible = !document.getElementById('win-screen').classList.contains('hidden');
-          if (!winVisible) return fail('expected the win screen after eliminating player 2');
-
-          document.getElementById('review-game-btn').click();
-
-          var gameScreenVisibleImmediately = !document.getElementById('game-screen').classList.contains('hidden');
-          var winHiddenImmediately = document.getElementById('win-screen').classList.contains('hidden');
-
-          var pollCount = 0;
-          function waitForReview() {
-            pollCount++;
-            var badge = document.querySelector('.move-quality');
-            if (badge) {
-              afterReview(badge, gameScreenVisibleImmediately, winHiddenImmediately);
-            } else if (pollCount >= 100) { // up to 20s - a real 30-sim search, not mocked
-              fail('review never produced a move-quality badge (timed out)');
-            } else {
-              setTimeout(waitForReview, 200);
-            }
+      function legalMoves(state) {
+        var moves = [];
+        var p = state.currentPlayerIndex;
+        var hasMoved = state.players[p].hasMoved;
+        for (var r = 0; r < state.rows; r++) {
+          for (var c = 0; c < state.cols; c++) {
+            if (GL.isValidMove(state.board, r, c, p, hasMoved)) moves.push({ row: r, col: c });
           }
-
-          function afterReview(badge, gameScreenVisibleImmediately, winHiddenImmediately) {
-            var revealCheck = { ok: gameScreenVisibleImmediately && winHiddenImmediately };
-            if (!revealCheck.ok) {
-              revealCheck.reason = 'expected Review Game to immediately reveal game-screen/hide win-screen';
-            }
-
-            var validLabels = ['move-quality-best', 'move-quality-inaccuracy', 'move-quality-mistake', 'move-quality-blunder'];
-            var badgeClasses = badge.className.split(/\s+/);
-            var qualityClass = badgeClasses.filter(function (c) { return validLabels.indexOf(c) !== -1; })[0];
-            var badgeCheck = { ok: !!qualityClass };
-            if (!badgeCheck.ok) badgeCheck.reason = 'expected one of ' + JSON.stringify(validLabels) + ', got classes ' + badge.className;
-
-            var titleMatch = /\((\d+)pp win% drop\)/.exec(badge.title || '');
-            var dropCheck = { ok: true };
-            if (!titleMatch) {
-              dropCheck = { ok: false, reason: 'expected badge title to report an N pp win% drop, got "' + badge.title + '"' };
-            } else {
-              var pct = Number(titleMatch[1]);
-              if (pct < 0 || pct > 100) dropCheck = { ok: false, reason: 'drop percentage out of [0,100]: ' + pct };
-            }
-
-            var progressGone = document.querySelector('.review-progress').classList.contains('hidden');
-            var progressCheck = { ok: progressGone };
-            if (!progressCheck.ok) progressCheck.reason = 'expected the progress indicator to hide once review finished';
-
-            report({
-              ok: errors.length === 0 && revealCheck.ok && badgeCheck.ok && dropCheck.ok && progressCheck.ok,
-              errors: errors,
-              revealCheck: revealCheck,
-              badgeCheck: badgeCheck,
-              dropCheck: dropCheck,
-              progressCheck: progressCheck,
-              badgeTitle: badge.title
-            });
-          }
-
-          waitForReview();
-        }, 600);
-      } catch (e) {
-        fail('exception in test driver: ' + e.message);
+        }
+        return moves;
       }
+      function toAlgebraic(state, r, c) {
+        return String.fromCharCode(97 + c) + (state.rows - r);
+      }
+
+      var seed = 12345;
+      function rand() {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed / 0x7fffffff;
+      }
+
+      var startState = GL.createGame(NUM_PLAYERS, 7, 7);
+      var startCwn = GL.encodeCwn(startState);
+      var state = startState;
+      var groundTruth = []; // {notation, seat}
+      var eliminationSeenAtMove = -1;
+      var maxMoves = 600;
+
+      for (var i = 0; i < maxMoves && !state.gameOver; i++) {
+        var moves = legalMoves(state);
+        if (moves.length === 0) break;
+        var pick = moves[Math.floor(rand() * moves.length)];
+        var seat = state.currentPlayerIndex;
+        var notation = toAlgebraic(state, pick.row, pick.col);
+        var result = GL.playMove(state, pick.row, pick.col);
+        state = result.state;
+        groundTruth.push({ notation: notation, seat: seat });
+        if (eliminationSeenAtMove === -1) {
+          for (var pi = 0; pi < state.players.length; pi++) {
+            if (!state.players[pi].active) { eliminationSeenAtMove = groundTruth.length - 1; break; }
+          }
+        }
+        if (eliminationSeenAtMove !== -1 && groundTruth.length - eliminationSeenAtMove >= 8) break;
+      }
+
+      if (eliminationSeenAtMove === -1) {
+        fail('no elimination occurred within ' + maxMoves + ' simulated moves - cannot verify the fix (try a different seed)');
+        return;
+      }
+
+      // Independently-expected layout: identical rule to the fix, computed
+      // fresh from ground truth rather than calling into the app's own
+      // renderer - if the two disagree anywhere, the fix is wrong.
+      var expectedRows = [];
+      var currentRow = null, seenSeats = null;
+      groundTruth.forEach(function (m, idx) {
+        if (!currentRow || seenSeats[m.seat]) {
+          currentRow = [];
+          for (var s = 0; s < NUM_PLAYERS; s++) currentRow.push(null);
+          seenSeats = {};
+          expectedRows.push(currentRow);
+        }
+        currentRow[m.seat] = idx;
+        seenSeats[m.seat] = true;
+      });
+
+      var payload = {
+        format: 'colourwars-game-v1',
+        startPosition: startCwn,
+        moves: groundTruth.map(function (m) { return m.notation; })
+      };
+      window.prompt = function () { return JSON.stringify(payload); };
+      window.confirm = function () { return true; };
+
+      document.getElementById('import-game-btn').click();
+
+      function checkStatsPanel() {
+        var groups = document.querySelectorAll('#stats-panel .share-bar-group');
+        var rows = document.querySelectorAll('#stats-panel .stat-row');
+        if (groups.length !== 2) return { ok: false, reason: 'expected 2 share-bar-group, got ' + groups.length };
+        if (rows.length !== NUM_PLAYERS) return { ok: false, reason: 'expected ' + NUM_PLAYERS + ' stat-row, got ' + rows.length };
+        if (rows[0].children.length !== 5) return { ok: false, reason: 'expected 5 children per stat-row, got ' + rows[0].children.length };
+        var avgText = rows[0].children[4].textContent;
+        return { ok: /avg/.test(avgText), avgText: avgText };
+      }
+
+      setTimeout(function () {
+        try {
+          var listEl = document.getElementById('move-history-list');
+          var stride = NUM_PLAYERS + 1;
+          var children = listEl.children;
+          var mismatches = [];
+          var hasEmptyCell = false;
+
+          expectedRows.forEach(function (row, roundIdx) {
+            var base = roundIdx * stride;
+            for (var seat = 0; seat < NUM_PLAYERS; seat++) {
+              var cellEl = children[base + 1 + seat];
+              var expectedIdx = row[seat];
+              if (!cellEl) { mismatches.push('round ' + roundIdx + ' seat ' + seat + ': missing cell element'); continue; }
+              if (expectedIdx === null) {
+                hasEmptyCell = true;
+                if (!cellEl.classList.contains('empty')) {
+                  mismatches.push('round ' + roundIdx + ' seat ' + seat + ': expected empty, got "' + cellEl.textContent.trim() + '"');
+                }
+              } else {
+                var expectedText = groundTruth[expectedIdx].notation;
+                if (cellEl.textContent.trim() !== expectedText) {
+                  mismatches.push('round ' + roundIdx + ' seat ' + seat + ': expected "' + expectedText + '", got "' + cellEl.textContent.trim() + '"');
+                }
+              }
+            }
+          });
+
+          var statsCheck = checkStatsPanel();
+
+          report({
+            ok: errors.length === 0 && mismatches.length === 0 && hasEmptyCell && statsCheck.ok,
+            errors: errors,
+            totalMoves: groundTruth.length,
+            eliminationSeenAtMove: eliminationSeenAtMove,
+            rowCount: expectedRows.length,
+            mismatchCount: mismatches.length,
+            mismatches: mismatches.slice(0, 10),
+            hasEmptyCell: hasEmptyCell,
+            statsCheck: statsCheck
+          });
+        } catch (e) {
+          fail('exception checking rendered move list: ' + e.message);
+        }
+      }, 600);
     })();
   </script>
 </body>

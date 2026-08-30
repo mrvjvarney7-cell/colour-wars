@@ -44,6 +44,7 @@ FIXTURES = [
     "browser_eval_bar_test.html",
     "browser_game_review_test.html",
     "browser_history_test.html",
+    "browser_move_history_elimination_test.html",
     "browser_nav_shell_test.html",
     "browser_new_screens_test.html",
     "browser_policy_heatmap_test.html",
