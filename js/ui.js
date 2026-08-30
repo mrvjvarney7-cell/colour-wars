@@ -137,13 +137,31 @@
   // hides it (every real transition should start from a clean, non-overlaid
   // view); showWinScreen() is the only thing that ever reveals it, when a
   // game actually just ended.
-  function showScreen(name) {
+  // name === 'game' is exempt from the guard here because the only direct
+  // showScreen('game') callers left after loadGameFromReplay/openPuzzle/
+  // openAnalysis added their own early confirmLeaveGameIfNeeded() (see
+  // those functions) are ones re-displaying the SAME already-live position
+  // (Home's "Continue game" button; those three passing alreadyConfirmed
+  // themselves once they've already asked). showScreen() has no way to
+  // tell "same game" from "about to be replaced" by the name alone, which
+  // is exactly why those three ask before they touch `state`, not here.
+  function showScreen(name, alreadyConfirmed) {
+    if (name !== 'game' && !alreadyConfirmed && !confirmLeaveGameIfNeeded()) return false;
     applyScreen(name);
     var route = ROUTE_FOR_SCREEN[name];
     if (route && location.hash !== '#/' + route) location.hash = '#/' + route;
+    return true;
   }
 
+  // Browser back/forward (or a bookmarked/typed hash) already moves
+  // location.hash before this event fires - unlike a click, there's no
+  // "don't change the hash" option. Declining means pushing the hash back
+  // to match what's still actually on screen, which itself fires another
+  // hashchange; suppressHashChange skips that corrective one rather than
+  // re-running (and re-prompting) this same check against it.
+  var suppressHashChange = false;
   window.addEventListener('hashchange', function () {
+    if (suppressHashChange) { suppressHashChange = false; return; }
     var route = location.hash.replace(/^#\/?/, '');
     var name = SCREEN_FOR_ROUTE[route];
     // An unrecognized/empty route (including one that names a screen that
@@ -151,6 +169,14 @@
     // whatever's currently showing alone rather than forcing a change -
     // there's nothing sensible to fall back to that isn't just guessing.
     if (!name) return;
+    if (name !== 'game' && !confirmLeaveGameIfNeeded()) {
+      var currentRoute = ROUTE_FOR_SCREEN[currentScreenName()];
+      if (currentRoute && location.hash !== '#/' + currentRoute) {
+        suppressHashChange = true;
+        location.hash = '#/' + currentRoute;
+      }
+      return;
+    }
     // Only ever reached mid-session (this listener can't fire before the
     // page has loaded once), so 'game' is always safe here - unlike the
     // one-time initial-load bootstrap below, `state` already holds
@@ -178,14 +204,14 @@
   // all and render disabled - none left as of the Bots/Engine/Settings
   // build, but the flag stays so a future item can land the same way.
   var NAV_ITEMS = [
-    { id: 'play', label: 'Play', built: true, action: function () { backToSetup(); } },
-    { id: 'puzzle', label: 'Puzzle', built: true, action: function () { openPuzzle(); } },
-    { id: 'analysis', label: 'Analysis', built: true, action: function () { openAnalysis(); } },
-    { id: 'bots', label: 'Bots', built: true, action: function () { openBots(); } },
-    { id: 'games', label: 'Games', built: true, action: function () { openHistory(); } },
-    { id: 'rules', label: 'Rules', built: true, action: function () { openRules(); } },
-    { id: 'engine', label: 'Engine', built: true, action: function () { openEngine(); } },
-    { id: 'settings', label: 'Settings', built: true, action: function () { openSettings(); } }
+    { id: 'play', label: 'Play', built: true, action: function () { return backToSetup(); } },
+    { id: 'puzzle', label: 'Puzzle', built: true, action: function () { return openPuzzle(); } },
+    { id: 'analysis', label: 'Analysis', built: true, action: function () { return openAnalysis(); } },
+    { id: 'bots', label: 'Bots', built: true, action: function () { return openBots(); } },
+    { id: 'games', label: 'Games', built: true, action: function () { return openHistory(); } },
+    { id: 'rules', label: 'Rules', built: true, action: function () { return openRules(); } },
+    { id: 'engine', label: 'Engine', built: true, action: function () { return openEngine(); } },
+    { id: 'settings', label: 'Settings', built: true, action: function () { return openSettings(); } }
   ];
 
   function currentScreenName() {
@@ -221,11 +247,24 @@
     return !!state && !state.gameOver && !!gameScreen && !gameScreen.classList.contains('hidden');
   }
 
+  // The single confirm() call for "you're about to lose a live game" -
+  // showScreen() below is where most callers get this for free, but a
+  // handful (loadGameFromReplay, openPuzzle, openAnalysis) overwrite
+  // `state` themselves before they'd ever reach showScreen('game') - by
+  // then the guard would be too late, the overwrite already done. Those
+  // call this explicitly, first, before touching anything.
+  function confirmLeaveGameIfNeeded() {
+    return !isGameInProgress() || window.confirm('You have a game in progress - leave it?');
+  }
+
   function activateNavItem(item) {
     if (!item.built) return;
-    if (isGameInProgress() && !window.confirm('You have a game in progress - leave it?')) return;
-    item.action();
-    closeDrawer(); // no-op when not open (desktop, or already closed)
+    var proceeded = item.action();
+    // Only an explicit `false` (a guard actually declined) leaves the
+    // drawer open, so the user can back out of the confirm without also
+    // losing their place in the menu - any other falsy return (nothing to
+    // do, e.g. no puzzle today) closes it same as before this existed.
+    if (proceeded !== false) closeDrawer(); // no-op when not open (desktop, or already closed)
   }
 
   var navListEl = document.getElementById('nav-list');
@@ -368,7 +407,7 @@
   // until a real click happens, long after the whole script has run).
   function goHome(e) {
     e.preventDefault();
-    activateNavItem({ id: 'home', built: true, action: function () { openHome(); } });
+    activateNavItem({ id: 'home', built: true, action: function () { return openHome(); } });
   }
   if (topbarLogoLink) topbarLogoLink.addEventListener('click', goHome);
   if (navLogoLink) navLogoLink.addEventListener('click', goHome);
@@ -719,7 +758,7 @@
 
   function openBots() {
     renderBotsScreen();
-    showScreen('bots');
+    return showScreen('bots');
   }
   function closeBots() {
     showScreen('setup');
@@ -821,7 +860,7 @@
 
   function openEngine() {
     renderEngineScreen();
-    showScreen('engine');
+    return showScreen('engine');
   }
   function closeEngine() {
     showScreen('setup');
@@ -1991,8 +2030,15 @@
   }
 
   function backToSetup() {
+    // Checked here, before resetAnimationState(), rather than left to
+    // showScreen('setup')'s own guard below - resetAnimationState() bumps
+    // gameEpoch, which abandons any in-flight animation/AI-turn promise
+    // chain via their own epoch checks. Running that BEFORE the user has
+    // actually confirmed leaving would silently drop an in-progress move
+    // even if they go on to decline.
+    if (!confirmLeaveGameIfNeeded()) return false;
     resetAnimationState();
-    showScreen('setup');
+    return showScreen('setup', true);
   }
 
   // ---------- Local game history (T7) ----------
@@ -2152,7 +2198,7 @@
 
   function openHistory() {
     renderHistoryScreen();
-    showScreen('history');
+    return showScreen('history');
   }
 
   function closeHistory() {
@@ -2161,7 +2207,7 @@
 
   // ---------- Rules (T9) ----------
   function openRules() {
-    showScreen('rules');
+    return showScreen('rules');
   }
 
   function closeRules() {
@@ -2290,7 +2336,7 @@
 
   function openSettings() {
     renderSettingsScreen();
-    showScreen('settings');
+    return showScreen('settings');
   }
   function closeSettings() {
     showScreen('setup');
@@ -2340,6 +2386,12 @@
   function openPuzzle() {
     var puzzle = todaysPuzzle();
     if (!puzzle) return;
+    // Checked before any of the state-overwriting work below, not left to
+    // showScreen('game')'s own guard at the end - that guard is exempt for
+    // name==='game' precisely because it can't tell "same live game" from
+    // "about to replace it", so callers that replace `state` themselves
+    // have to ask first, before touching anything.
+    if (!confirmLeaveGameIfNeeded()) return false;
     resetAnimationState();
     var decoded = GL.decodeCwn(puzzle.cwn);
     state = decoded;
@@ -2363,7 +2415,7 @@
       puzzleFeedbackEl.textContent = '';
       puzzleFeedbackEl.classList.remove('hidden');
     }
-    showScreen('game');
+    return showScreen('game', true);
   }
 
   function attemptPuzzleMove(r, c, cellEl) {
@@ -2423,16 +2475,22 @@
   }
 
   function openAnalysis() {
+    // Asked before the prompt, not after - no point making someone paste a
+    // whole position only to then ask if they want to lose their current
+    // game. Checked here rather than left to showScreen('game')'s own
+    // guard for the same reason as openPuzzle(): this replaces `state`
+    // itself before it would ever reach that call.
+    if (!confirmLeaveGameIfNeeded()) return false;
     var input = window.prompt('Paste a Colour Wars position (CWN string or share link) to analyse:');
-    if (!input) return;
+    if (!input) return false;
     var cwn = extractCwnFromInput(input);
-    if (!cwn) { window.alert('Could not find a position in that text.'); return; }
+    if (!cwn) { window.alert('Could not find a position in that text.'); return false; }
     var decoded;
     try {
       decoded = GL.decodeCwn(cwn);
     } catch (e) {
       window.alert('Could not load that position: ' + e.message);
-      return;
+      return false;
     }
     resetAnimationState();
     inAnalysisMode = true;
@@ -2447,7 +2505,7 @@
     buildBoardDom(state.rows, state.cols);
     renderPlayersStrip();
     renderHistoryFrame();
-    showScreen('game');
+    return showScreen('game', true);
   }
 
   // ---------- Share / export / import (T6: CWN) ----------
@@ -2524,6 +2582,12 @@
   // seat human, standard names/colours - CWN encodes a position, not which
   // seats are AI or which checkpoint they use).
   function loadGameFromReplay(replay) {
+    // Checked here, first - this is the shared entry point for Import, a
+    // Games/Home history-row click, and the bootstrap ?cwn= load. The
+    // bootstrap call is naturally exempt without any special-casing:
+    // `state` is still undefined at that point, so isGameInProgress() (and
+    // so confirmLeaveGameIfNeeded()) is false regardless.
+    if (!confirmLeaveGameIfNeeded()) return false;
     resetAnimationState();
     state = replay.state;
     boardHistory = replay.boardHistory;
@@ -2543,8 +2607,9 @@
     buildBoardDom(state.rows, state.cols);
     renderPlayersStrip();
     renderHistoryFrame();
-    showScreen('game');
+    showScreen('game', true);
     maybePlayAiTurn(gameEpoch);
+    return true;
   }
 
   function importGame() {
@@ -2685,7 +2750,7 @@
 
   function openHome() {
     renderHome();
-    showScreen('home');
+    return showScreen('home');
   }
 
   if (homeContinueBtn) homeContinueBtn.addEventListener('click', function () { showScreen('game'); });
