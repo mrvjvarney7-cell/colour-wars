@@ -41,6 +41,7 @@ FIXTURES = [
     "browser_bot_ladder_test.html",
     "browser_chain_preview_test.html",
     "browser_cwn_share_test.html",
+    "browser_desktop_layout_test.html",
     "browser_eval_bar_test.html",
     "browser_game_review_test.html",
     "browser_history_test.html",
