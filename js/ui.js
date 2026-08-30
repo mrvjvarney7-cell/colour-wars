@@ -835,7 +835,7 @@
       }
       lines.forEach(function (line) {
         var row = document.createElement('div');
-        row.className = 'stat-row';
+        row.className = 'stat-line';
         row.textContent = line;
         engineStatsPanelEl.appendChild(row);
       });
@@ -2050,7 +2050,7 @@
     }
     lines.forEach(function (line) {
       var row = document.createElement('div');
-      row.className = 'stat-row';
+      row.className = 'stat-line';
       row.textContent = line;
       historyStatsPanelEl.appendChild(row);
     });
@@ -2580,7 +2580,7 @@
       var tier = rank >= 0 ? botTierForRank(rank) : null;
       homeLadderPanelEl.innerHTML = '';
       var row = document.createElement('div');
-      row.className = 'stat-row';
+      row.className = 'stat-line';
       row.textContent = tier
         ? 'Current rank: ' + tier.avatar + ' ' + tier.name + ' (' + (rank + 1) + ' of ' + ladder.length + ' unlocked)'
         : 'No bots unlocked yet';

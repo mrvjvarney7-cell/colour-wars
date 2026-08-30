@@ -1049,6 +1049,19 @@ body.is-animating .nav-scrim {
   text-decoration: line-through;
 }
 
+/* A single free-text sentence inside a .stats-panel (Games/History's
+   summary lines, Engine's, Home's ladder-rank line) - NOT .stat-row, which
+   is a 4-column grid (dot/name/value/value) for the in-game per-player
+   panel. Reusing .stat-row for one plain text node confines it to that
+   grid's 10px first column and wraps it into a near-unreadable vertical
+   sliver - this is the same text styling without the grid. */
+.stat-line {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+
 .stat-dot {
   width: 10px;
   height: 10px;
