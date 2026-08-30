@@ -373,9 +373,20 @@ def main():
             max_moves=args.eval_max_moves,
         )
         win_rate_vs_best = gating_result["win_rate"]
+        gating_decisive = gating_result["wins"] + gating_result["losses"]
+        gating_drawn_at_cap = gating_result["draws"]
+        # Every draw in this harness IS a dropout - the game only has one
+        # real ending (elimination); a draw here means max_moves was hit
+        # without one, never a game-rules tie. A rising rate here is the
+        # earliest sign the ply cap is distorting results before it shows
+        # up as a weird win rate - see the 2026-08-30 iteration-37-40
+        # investigation, where this was invisible until computed by hand.
+        gating_dropout_rate = gating_drawn_at_cap / gating_result["attempted"] if gating_result["attempted"] else 0.0
         print(f"Candidate win rate vs previous best (2p paired, gating): {win_rate_vs_best:.1%} "
               f"({gating_result['wins']}W/{gating_result['draws']}D/{gating_result['losses']}L "
               f"of {gating_result['attempted']} attempted, draws scored 0.5 each)")
+        print(f"Gating dropout: {gating_drawn_at_cap} of {gating_result['attempted']} attempted "
+              f"hit max_moves without a decision ({gating_dropout_rate:.1%}), {gating_decisive} decisive")
 
         write_eval_breakdown(iteration, gating_result)
 
@@ -427,6 +438,15 @@ def main():
             "win_rate_vs_best_draws": gating_result["draws"],
             "win_rate_vs_best_losses": gating_result["losses"],
             "win_rate_vs_best_attempted": gating_result["attempted"],
+            # Top-level, not just inside eval_breakdown_iterN.json - the
+            # point is being visible on a plain log read, without opening a
+            # second file. drawn_at_cap duplicates win_rate_vs_best_draws
+            # under an unambiguous name (every draw here IS a dropout - see
+            # the print above) rather than replacing it, so nothing that
+            # already reads win_rate_vs_best_draws breaks.
+            "win_rate_vs_best_decisive": gating_decisive,
+            "win_rate_vs_best_drawn_at_cap": gating_drawn_at_cap,
+            "win_rate_vs_best_dropout_rate": gating_dropout_rate,
             "win_rate_vs_random": win_rate_vs_random,
             "promoted": promoted,
             "iter_time_sec": iter_time,
