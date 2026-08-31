@@ -41,32 +41,63 @@ MID_GAME_DISTINCTNESS_CHECKPOINT = 20
 MIN_DISTINCTNESS_RATIO = 0.5
 
 
+class EvalDistinctnessError(RuntimeError):
+    """Raised by evaluate_vs_checkpoint_2p_paired when played-game
+    distinctness collapses below MIN_DISTINCTNESS_RATIO - see
+    _distinctness_failure_reason for the check itself.
+
+    Carries the full partial result as `.result` - everything that would
+    have been returned on success (wins/draws/losses/attempted, the
+    distinctness counts, and the real per-opening/per-game breakdown with
+    each game's canonical_key), computed from games that were actually
+    played before the check ran. A caller (train.py) can still persist this
+    via write_eval_breakdown for audit even though no win rate is reported -
+    refusing to report a number is only useful if someone can still see WHY,
+    and the per-game breakdown is the only place that's visible. `.result`
+    does include a "win_rate" key (computed the same way as the healthy
+    path) - it's real arithmetic, just not a trustworthy measurement of
+    anything, kept for audit ("what would the naive number even have
+    shown") the same way this whole investigation started from noticing
+    that number looked wrong."""
+
+    def __init__(self, message: str, result: dict):
+        super().__init__(message)
+        self.result = result
+
+
 def _check_distinctness(mid20_keys: list, final_keys: list, attempted: int) -> tuple:
-    """The distinctness invariant, pulled out of evaluate_vs_checkpoint_2p_paired
-    so it's testable without a GPU/network/real games - see that function's
-    docstring for what it's guarding against. Returns (distinct_at_mid20,
-    games_reaching_mid20, distinct_final); raises RuntimeError if either
-    ratio falls below MIN_DISTINCTNESS_RATIO."""
+    """Pure computation, no raising - so it's testable without a GPU/network/
+    real games. Returns (distinct_at_mid20, games_reaching_mid20,
+    distinct_final). See _distinctness_failure_reason for the actual
+    pass/fail check against MIN_DISTINCTNESS_RATIO."""
     games_reaching_mid20 = len(mid20_keys)
     distinct_at_mid20 = len(set(mid20_keys))
     distinct_final = len(set(final_keys))
+    return distinct_at_mid20, games_reaching_mid20, distinct_final
 
+
+def _distinctness_failure_reason(
+    distinct_at_mid20: int, games_reaching_mid20: int, distinct_final: int, attempted: int
+) -> str | None:
+    """None if both distinctness ratios clear MIN_DISTINCTNESS_RATIO, else a
+    human-readable reason - self-contained (measured counts, ratio computed
+    inline, threshold named) but deliberately does NOT know the iteration
+    number or a breakdown file path, since this function has no access to
+    either; the caller (evaluate_vs_checkpoint_2p_paired, then train.py)
+    adds those, since only train.py actually has that context."""
     if games_reaching_mid20 > 0 and distinct_at_mid20 / games_reaching_mid20 < MIN_DISTINCTNESS_RATIO:
-        raise RuntimeError(
-            f"Eval sample has collapsed: only {distinct_at_mid20} distinct positions "
-            f"(D4-canonicalised) among {games_reaching_mid20} played games at move "
-            f"{MID_GAME_DISTINCTNESS_CHECKPOINT} ({distinct_at_mid20 / games_reaching_mid20:.1%}, "
-            f"below the {MIN_DISTINCTNESS_RATIO:.0%} floor). Refusing to report a win rate "
-            f"built on a collapsed sample."
+        return (
+            f"only {distinct_at_mid20} of {games_reaching_mid20} played games "
+            f"({distinct_at_mid20 / games_reaching_mid20:.1%}) are distinct (D4-canonicalised) "
+            f"at move {MID_GAME_DISTINCTNESS_CHECKPOINT}, below the {MIN_DISTINCTNESS_RATIO:.0%} floor"
         )
     if attempted > 0 and distinct_final / attempted < MIN_DISTINCTNESS_RATIO:
-        raise RuntimeError(
-            f"Eval sample has collapsed: only {distinct_final} distinct final positions "
-            f"(D4-canonicalised) among {attempted} played games "
-            f"({distinct_final / attempted:.1%}, below the {MIN_DISTINCTNESS_RATIO:.0%} floor). "
-            f"Refusing to report a win rate built on a collapsed sample."
+        return (
+            f"only {distinct_final} of {attempted} played games "
+            f"({distinct_final / attempted:.1%}) are distinct (D4-canonicalised) at their final "
+            f"position, below the {MIN_DISTINCTNESS_RATIO:.0%} floor"
         )
-    return distinct_at_mid20, games_reaching_mid20, distinct_final
+    return None
 
 
 def _random_move(env: ColourWarsEnv) -> int:
@@ -335,16 +366,11 @@ def evaluate_vs_checkpoint_2p_paired(
             "games": games,
         })
 
-    # Conservative on purpose - a healthy run (validated 2026-08-31 with
-    # real uniform-random openings) held 89/90 (99%) distinct at move 20;
-    # the broken MCTS-sampled run this replaces held 12/100 (12%). 50%
-    # leaves an enormous margin on both sides while still catching a real
-    # collapse immediately, rather than needing to be tuned precisely.
     distinct_at_mid20, games_reaching_mid20, distinct_final = _check_distinctness(
         mid20_keys, final_keys, attempted
     )
 
-    return {
+    result = {
         "win_rate": (total_score / attempted) if attempted else 0.0,
         "wins": wins,
         "draws": draws,
@@ -356,3 +382,26 @@ def evaluate_vs_checkpoint_2p_paired(
         "distinct_final": distinct_final,
         "openings": openings_breakdown,
     }
+
+    # Conservative on purpose - a healthy run (validated 2026-08-31 with
+    # real uniform-random openings) held 89/90 (99%) distinct at move 20;
+    # the broken MCTS-sampled run this replaces held 12/100 (12%). 50%
+    # leaves an enormous margin on both sides while still catching a real
+    # collapse immediately, rather than needing to be tuned precisely.
+    #
+    # `result` is built BEFORE this check (not after, as originally written)
+    # specifically so a failure can still carry it - see EvalDistinctnessError.
+    # A caller that only has a bare RuntimeError with a message has no way to
+    # see which openings collapsed; a caller with .result can still persist
+    # and audit the full breakdown even though no win rate is trustworthy.
+    failure_reason = _distinctness_failure_reason(
+        distinct_at_mid20, games_reaching_mid20, distinct_final, attempted
+    )
+    if failure_reason is not None:
+        raise EvalDistinctnessError(
+            f"Eval sample has collapsed - {failure_reason}. Refusing to report a win rate "
+            f"built on a collapsed sample.",
+            result=result,
+        )
+
+    return result
