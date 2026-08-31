@@ -14,6 +14,7 @@ import torch
 
 from colourwars.board_symmetry import canonical_key
 from colourwars.env import ColourWarsEnv
+from colourwars.game import COLS, ROWS, Cell
 from colourwars.mcts import run_mcts, visit_count_policy
 from colourwars.network import ColourWarsNet
 
@@ -279,10 +280,74 @@ def _play_paired_2p_games(candidate_net: ColourWarsNet, opponent_net: ColourWars
     return games
 
 
+def board_from_flat(owners: list, counts: list, rows: int, cols: int) -> list:
+    """Inverse of the Rust engine's flat_owners/flat_counts (game::flat_owners/
+    flat_counts, rust/src/game.rs) - the only glue needed to keep
+    board_symmetry.canonical_key as the single source of truth for D4
+    canonicalisation instead of porting it into Rust too (see
+    paired_eval.rs's module docs for why: two implementations could
+    silently drift apart on what counts as "the same position"). -1 means
+    empty, matching the Rust side's own convention."""
+    return [
+        [
+            Cell(owner=(None if owners[r * cols + c] == -1 else owners[r * cols + c]),
+                 count=counts[r * cols + c])
+            for c in range(cols)
+        ]
+        for r in range(rows)
+    ]
+
+
+def _play_paired_2p_games_batch_rust(candidate_net: ColourWarsNet, opponent_net: ColourWarsNet, device,
+                                      num_simulations: int, openings: list, max_moves: int,
+                                      batch_size: int) -> list:
+    """Bulk Rust-backed equivalent of calling _play_paired_2p_games once per
+    opening - one call to colourwars_rs.run_batched_paired_eval_rust covers
+    every opening's both seat assignments at once, batching MCTS leaf
+    evaluations across all of them for throughput (see paired_eval.rs).
+    Returns a list of length len(openings), each entry the same
+    [seat0_game_dict, seat1_game_dict] shape _play_paired_2p_games produces
+    - candidate_seat/decided/candidate_score/move_count/reason/mid20_key/
+    final_key - so evaluate_vs_checkpoint_2p_paired's aggregation loop
+    doesn't need to know which backend produced them."""
+    import colourwars_rs as rs
+
+    from colourwars.rust_selfplay import _make_numpy_forward_fn
+
+    candidate_fn = _make_numpy_forward_fn(candidate_net, device)
+    opponent_fn = _make_numpy_forward_fn(opponent_net, device)
+
+    records = rs.run_batched_paired_eval_rust(
+        candidate_fn, opponent_fn,
+        [o["opening_actions"] for o in openings],
+        num_simulations=num_simulations, batch_size=batch_size,
+        mid_checkpoint_ply=MID_GAME_DISTINCTNESS_CHECKPOINT, max_moves=max_moves,
+    )
+
+    per_opening: list = [[] for _ in openings]
+    for rec in records:
+        mid_key = (
+            canonical_key(board_from_flat(rec.mid_owners, rec.mid_counts, ROWS, COLS))
+            if rec.mid_owners is not None else None
+        )
+        final_key = canonical_key(board_from_flat(rec.final_owners, rec.final_counts, ROWS, COLS))
+        per_opening[rec.opening_index].append({
+            "candidate_seat": rec.candidate_seat,
+            "decided": rec.decided,
+            "candidate_score": rec.candidate_score,
+            "move_count": rec.move_count,
+            "reason": "decided" if rec.decided else "max_moves_reached (scored as draw)",
+            "mid20_key": mid_key,
+            "final_key": final_key,
+        })
+    return per_opening
+
+
 def evaluate_vs_checkpoint_2p_paired(
     net: ColourWarsNet, checkpoint_path: str, device,
     num_openings: int = 100, num_simulations: int = 50,
     opening_plies: int = 8, opening_temperature: float = 0.5, max_moves: int = 300,
+    eval_backend: str = "python", eval_batch_size: int = 64,
 ) -> dict:
     """The promotion-gating metric: 2-player only (a 55% bar is only
     meaningful in a symmetric two-player match - a 3/4-player free-for-all's
@@ -327,6 +392,18 @@ def evaluate_vs_checkpoint_2p_paired(
         candidate_seat/decided/candidate_score/move_count/reason/
         mid20_key/final_key) for diagnosing exactly which positions/seats
         produced the result.
+
+    eval_backend: "python" (default) uses the original pure-Python
+      single-game MCTS path (_mcts_move/_play_paired_2p_games) - the
+      trusted, production path this session's investigation has been
+      built and verified against. "rust" uses
+      colourwars_rs.run_batched_paired_eval_rust (see paired_eval.rs) -
+      much faster (the same Rust engine+MCTS self-play already uses,
+      never before applied to eval), but requires explicit opt-in: eval
+      directly gates promotion, so this must not become the default
+      without reviewing compare_rust_eval.py's verification results
+      first (see AGREED_NOT_IMPLEMENTED.md). eval_batch_size only matters
+      for the rust backend - concurrent games per MCTS round.
     """
     del opening_temperature  # unused - see docstring
 
@@ -335,6 +412,15 @@ def evaluate_vs_checkpoint_2p_paired(
     opponent.eval()
 
     openings = _generate_distinct_random_openings(num_openings, opening_plies)
+
+    if eval_backend == "rust":
+        per_opening_games = _play_paired_2p_games_batch_rust(
+            net, opponent, device, num_simulations, openings, max_moves, eval_batch_size
+        )
+    elif eval_backend == "python":
+        per_opening_games = None  # computed inline per-opening below, as before this flag existed
+    else:
+        raise ValueError(f"eval_backend must be 'python' or 'rust', got {eval_backend!r}")
 
     total_score = 0.0
     wins = 0
@@ -346,7 +432,10 @@ def evaluate_vs_checkpoint_2p_paired(
     openings_breakdown = []
     for opening_idx, opening in enumerate(openings):
         opening_actions = opening["opening_actions"]
-        games = _play_paired_2p_games(net, opponent, device, num_simulations, opening_actions, max_moves=max_moves)
+        if eval_backend == "rust":
+            games = per_opening_games[opening_idx]
+        else:
+            games = _play_paired_2p_games(net, opponent, device, num_simulations, opening_actions, max_moves=max_moves)
         for g in games:
             attempted += 1
             total_score += g["candidate_score"]
