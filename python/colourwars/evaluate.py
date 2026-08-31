@@ -24,6 +24,50 @@ from colourwars.network import ColourWarsNet
 # _generate_distinct_random_openings.
 MAX_OPENING_ATTEMPTS_PER_OPENING = 50
 
+# Ply at which PLAYED games' distinctness is checked - see
+# evaluate_vs_checkpoint_2p_paired's distinctness invariant. 20 is where
+# the 2026-08-31 investigation's collapse was most visible (the old MCTS
+# sampler: 26 distinct openings at move 8 but only 12 by move 20).
+MID_GAME_DISTINCTNESS_CHECKPOINT = 20
+
+# Floor for played-game distinctness (at MID_GAME_DISTINCTNESS_CHECKPOINT
+# and at final position) below which evaluate_vs_checkpoint_2p_paired
+# refuses to report a win rate. Deliberately conservative, not tuned to a
+# hair's width: the 2026-08-31 validation measured a healthy uniform-random
+# run at ~99% distinct by move 20, and the broken MCTS-sampled run this
+# replaces at 12% distinct. 50% sits far below the former and far above the
+# latter, so it catches a real collapse immediately without needing
+# precision, and won't fire on ordinary sampling variance in a healthy run.
+MIN_DISTINCTNESS_RATIO = 0.5
+
+
+def _check_distinctness(mid20_keys: list, final_keys: list, attempted: int) -> tuple:
+    """The distinctness invariant, pulled out of evaluate_vs_checkpoint_2p_paired
+    so it's testable without a GPU/network/real games - see that function's
+    docstring for what it's guarding against. Returns (distinct_at_mid20,
+    games_reaching_mid20, distinct_final); raises RuntimeError if either
+    ratio falls below MIN_DISTINCTNESS_RATIO."""
+    games_reaching_mid20 = len(mid20_keys)
+    distinct_at_mid20 = len(set(mid20_keys))
+    distinct_final = len(set(final_keys))
+
+    if games_reaching_mid20 > 0 and distinct_at_mid20 / games_reaching_mid20 < MIN_DISTINCTNESS_RATIO:
+        raise RuntimeError(
+            f"Eval sample has collapsed: only {distinct_at_mid20} distinct positions "
+            f"(D4-canonicalised) among {games_reaching_mid20} played games at move "
+            f"{MID_GAME_DISTINCTNESS_CHECKPOINT} ({distinct_at_mid20 / games_reaching_mid20:.1%}, "
+            f"below the {MIN_DISTINCTNESS_RATIO:.0%} floor). Refusing to report a win rate "
+            f"built on a collapsed sample."
+        )
+    if attempted > 0 and distinct_final / attempted < MIN_DISTINCTNESS_RATIO:
+        raise RuntimeError(
+            f"Eval sample has collapsed: only {distinct_final} distinct final positions "
+            f"(D4-canonicalised) among {attempted} played games "
+            f"({distinct_final / attempted:.1%}, below the {MIN_DISTINCTNESS_RATIO:.0%} floor). "
+            f"Refusing to report a win rate built on a collapsed sample."
+        )
+    return distinct_at_mid20, games_reaching_mid20, distinct_final
+
 
 def _random_move(env: ColourWarsEnv) -> int:
     legal = env.legal_moves()
@@ -163,18 +207,29 @@ def _play_paired_2p_games(candidate_net: ColourWarsNet, opponent_net: ColourWars
     grind out, which is exactly the mechanism that made an earlier run's
     win_rate_vs_best swing between a 26%- and 51%-game dropout rate across
     otherwise-similar matches. Returns one dict per attempted game (always
-    length 2, one per seat assignment)."""
+    length 2, one per seat assignment) - each also carries mid20_key (the
+    D4-canonicalised board at the first move reaching
+    MID_GAME_DISTINCTNESS_CHECKPOINT, or None if the game ended before
+    then) and final_key (canonicalised board at whatever move the game
+    actually ended, decided or capped) - see
+    evaluate_vs_checkpoint_2p_paired's distinctness invariant, which is
+    what these two exist for: generation-time dedup only guarantees the
+    OPENINGS were distinct, not that they're still distinct once played
+    out."""
     games = []
     for candidate_seat in (0, 1):
         env = ColourWarsEnv(2)
         for a in opening_actions:
             env = env.step(a)
         move_count = len(opening_actions)
+        mid20_key = canonical_key(env.state.board) if move_count >= MID_GAME_DISTINCTNESS_CHECKPOINT else None
         while not env.done and move_count < max_moves:
             net = candidate_net if env.current_player == candidate_seat else opponent_net
             action = _mcts_move(env, net, device, num_simulations)
             env = env.step(action)
             move_count += 1
+            if mid20_key is None and move_count >= MID_GAME_DISTINCTNESS_CHECKPOINT:
+                mid20_key = canonical_key(env.state.board)
         if env.done:
             candidate_score = 1.0 if env.winner == candidate_seat else 0.0
             reason = "decided"
@@ -187,6 +242,8 @@ def _play_paired_2p_games(candidate_net: ColourWarsNet, opponent_net: ColourWars
             "candidate_score": candidate_score,
             "move_count": move_count,
             "reason": reason,
+            "mid20_key": mid20_key,
+            "final_key": canonical_key(env.state.board),
         })
     return games
 
@@ -209,14 +266,36 @@ def evaluate_vs_checkpoint_2p_paired(
     in the signature so existing callers (train.py) don't need updating
     just for this change.
 
+    Distinctness invariant: generation-time dedup (see
+    _generate_distinct_random_openings) only guarantees the OPENINGS were
+    distinct - it says nothing about whether the PLAYED games are still
+    distinct once both sides finish greedily, which is exactly what the
+    old MCTS-sampled harness got wrong (openings looked fine; by move 20
+    they'd collapsed to a handful of repeated scenarios anyway). So this
+    checks the actual played games, at MID_GAME_DISTINCTNESS_CHECKPOINT
+    (move 20) and at each game's own final position, and RAISES rather
+    than returning a win rate if either falls below MIN_DISTINCTNESS_RATIO
+    - a collapsed sample must produce no win rate at all, not a number
+    that looks like it came from `attempted` independent trials when it
+    didn't.
+
     Returns a dict, not a bare float:
       win_rate: total candidate_score / attempted - attempted is always
         2 * num_openings now, since nothing is ever discarded from the
         denominator.
       wins, draws, losses (by candidate_score: 1.0/0.5/0.0), attempted
+      distinct_opening_count: how many of the num_openings requested were
+        actually generated (always == num_openings; the generator raises
+        rather than returning fewer - kept here so it's visible without
+        cross-referencing the call).
+      distinct_at_mid20 / games_reaching_mid20: distinctness of PLAYED
+        games at move 20, among games that got that far.
+      distinct_final / attempted: distinctness of every played game's own
+        final position (decided or capped).
       openings: full per-opening breakdown (opening plies + both games'
-        candidate_seat/decided/candidate_score/move_count/reason) for
-        diagnosing exactly which positions/seats produced the result.
+        candidate_seat/decided/candidate_score/move_count/reason/
+        mid20_key/final_key) for diagnosing exactly which positions/seats
+        produced the result.
     """
     del opening_temperature  # unused - see docstring
 
@@ -231,6 +310,8 @@ def evaluate_vs_checkpoint_2p_paired(
     draws = 0
     losses = 0
     attempted = 0
+    mid20_keys = []
+    final_keys = []
     openings_breakdown = []
     for opening_idx, opening in enumerate(openings):
         opening_actions = opening["opening_actions"]
@@ -244,11 +325,24 @@ def evaluate_vs_checkpoint_2p_paired(
                 draws += 1
             else:
                 losses += 1
+            if g["mid20_key"] is not None:
+                mid20_keys.append(g["mid20_key"])
+            final_keys.append(g["final_key"])
         openings_breakdown.append({
             "opening_index": opening_idx,
             "opening_actions": opening_actions,
+            "canonical_key": opening["canonical_key"],
             "games": games,
         })
+
+    # Conservative on purpose - a healthy run (validated 2026-08-31 with
+    # real uniform-random openings) held 89/90 (99%) distinct at move 20;
+    # the broken MCTS-sampled run this replaces held 12/100 (12%). 50%
+    # leaves an enormous margin on both sides while still catching a real
+    # collapse immediately, rather than needing to be tuned precisely.
+    distinct_at_mid20, games_reaching_mid20, distinct_final = _check_distinctness(
+        mid20_keys, final_keys, attempted
+    )
 
     return {
         "win_rate": (total_score / attempted) if attempted else 0.0,
@@ -256,5 +350,9 @@ def evaluate_vs_checkpoint_2p_paired(
         "draws": draws,
         "losses": losses,
         "attempted": attempted,
+        "distinct_opening_count": len(openings),
+        "distinct_at_mid20": distinct_at_mid20,
+        "games_reaching_mid20": games_reaching_mid20,
+        "distinct_final": distinct_final,
         "openings": openings_breakdown,
     }
