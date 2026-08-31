@@ -80,8 +80,19 @@ def test_gate_run_persists_eval_breakdown_to_disk(tmp_path, monkeypatch):
     with open(written_path) as f:
         on_disk = json.load(f)
 
-    for key in ("win_rate", "wins", "draws", "losses", "attempted", "openings"):
+    for key in (
+        "win_rate", "wins", "draws", "losses", "attempted", "openings",
+        "distinct_opening_count", "distinct_at_mid20", "games_reaching_mid20", "distinct_final",
+    ):
         assert key in on_disk, f"persisted breakdown is missing '{key}' - the gate result would be unauditable"
 
     assert on_disk["attempted"] == gating_result["attempted"]
     assert on_disk["wins"] + on_disk["draws"] + on_disk["losses"] == on_disk["attempted"]
+    assert on_disk["distinct_opening_count"] == 2
+
+    # canonical_key must survive the write per-opening, not just the
+    # top-level distinctness counts - it's what lets a stored breakdown be
+    # re-audited later (see the 2026-08-31 investigation's own scratch
+    # scripts, which had to reconstruct this after the fact).
+    for opening in on_disk["openings"]:
+        assert "canonical_key" in opening, "persisted opening is missing its canonical_key"
