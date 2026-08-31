@@ -242,6 +242,11 @@ pub struct PyEvalGameRecord {
     final_owners: Vec<i32>,
     #[pyo3(get)]
     final_counts: Vec<i32>,
+    /// Diagnostic-only (2026-08-31 parity investigation) - actions the
+    /// SEARCH chose, in order (excludes the fixed opening replay). Not read
+    /// by evaluate.py's production adapter, additive field only.
+    #[pyo3(get)]
+    search_moves: Vec<usize>,
 }
 
 /// Plays `candidate_forward_fn` against `opponent_forward_fn` over every
@@ -329,6 +334,7 @@ fn run_batched_paired_eval_rust(
             mid_counts: r.mid_counts,
             final_owners: r.final_owners,
             final_counts: r.final_counts,
+            search_moves: r.search_moves,
         })
         .collect())
 }

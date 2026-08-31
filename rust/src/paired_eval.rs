@@ -39,6 +39,16 @@ pub struct EvalGameResult {
     pub mid_counts: Option<Vec<i32>>,
     pub final_owners: Vec<i32>,
     pub final_counts: Vec<i32>,
+    /// Actions chosen by the SEARCH (not the fixed opening replay), in
+    /// order - diagnostic-only, for the 2026-08-31 compare_rust_eval.py
+    /// parity investigation: every prior diagnostic tested a SEPARATE
+    /// function (debug_root_visit_counts_rust) built in parallel to this
+    /// one, sharing only Tree/run_batched_mcts - never this function's own
+    /// slot-pool/refill/move-application bookkeeping. Recording the actual
+    /// per-ply choices THIS function makes lets that be checked directly
+    /// against Python's independently-computed choices for the identical
+    /// starting positions, rather than inferred from a parallel path.
+    pub search_moves: Vec<usize>,
 }
 
 struct EvalSlot {
@@ -48,6 +58,7 @@ struct EvalSlot {
     move_count: usize,
     mid_owners: Option<Vec<i32>>,
     mid_counts: Option<Vec<i32>>,
+    search_moves: Vec<usize>,
 }
 
 fn candidate_score(state: &GameState, candidate_seat: usize) -> (bool, f64) {
@@ -88,7 +99,7 @@ fn build_slot(opening_index: usize, candidate_seat: usize, actions: &[usize], mi
     } else {
         (None, None)
     };
-    EvalSlot { state, opening_index, candidate_seat, move_count, mid_owners, mid_counts }
+    EvalSlot { state, opening_index, candidate_seat, move_count, mid_owners, mid_counts, search_moves: Vec::new() }
 }
 
 fn finalize(slot: EvalSlot) -> EvalGameResult {
@@ -103,6 +114,7 @@ fn finalize(slot: EvalSlot) -> EvalGameResult {
         mid_counts: slot.mid_counts,
         final_owners: game::flat_owners(&slot.state.board),
         final_counts: game::flat_counts(&slot.state.board),
+        search_moves: slot.search_moves,
     }
 }
 
@@ -147,6 +159,7 @@ fn apply_move_and_advance(slots: &mut [Option<EvalSlot>], i: usize, tree: &Tree,
     let result = game::play_move(&slot.state, row, col);
     slot.state = result.state;
     slot.move_count += 1;
+    slot.search_moves.push(action);
     if slot.mid_owners.is_none() && slot.move_count >= mid_checkpoint_ply {
         slot.mid_owners = Some(game::flat_owners(&slot.state.board));
         slot.mid_counts = Some(game::flat_counts(&slot.state.board));
@@ -260,6 +273,15 @@ mod tests {
         let mut cand: Box<ForwardFn> = Box::new(dummy_forward_fn);
         let mut opp: Box<ForwardFn> = Box::new(dummy_forward_fn);
         run_batched_paired_eval(&mut *cand, &mut *opp, openings, num_simulations, 8, 20, max_moves, 1.5)
+    }
+
+    #[test]
+    fn search_moves_length_matches_move_count_minus_opening_length() {
+        let opening = vec![24usize, 17usize];
+        let results = run_dummy(&[opening.clone()], 4, 40);
+        for r in &results {
+            assert_eq!(r.search_moves.len(), r.move_count - opening.len());
+        }
     }
 
     #[test]
