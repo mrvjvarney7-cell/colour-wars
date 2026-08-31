@@ -24,19 +24,11 @@ the record of *why*, this file is just the record of *what's outstanding*.
   live gap any more, but recording the history so "we decided to hold it"
   isn't later misread as "nobody ever thought about it."
 
-- **`--eval-simulations` default changed but never took effect until the
-  iteration-41 restart.** `93224eb` also changed the default from 20 to
-  100, in the same commit as the harness rework. The live training process
-  (running continuously since before that commit's session) kept using 20
-  the entire time - confirmed directly from `train_run.log`'s own printed
-  "20 sims/move" on every gate, iterations 28 through 40. The 2026-08-30
-  restart (for the multiplayer-eval removal) didn't pass an explicit
-  `--eval-simulations` override, so **iteration 41's gate, once training
-  resumes, will silently run at 100 sims/move instead of 20** - a 5x
-  fidelity jump with no marker anywhere in the log, landing at the same
-  moment as the multiplayer-eval removal and the `gating_harness` tag. Not
-  itself broken, just unmarked - flagging so a future "why did the numbers
-  change again" investigation finds this instead of re-deriving it.
+- ~~**`--eval-simulations` default changed but never took effect.**~~ **DONE
+  (2026-08-31).** Pinned explicitly to 100 on the iteration-41 restart
+  command line (not left to the on-disk default, per the lesson of this
+  exact item) - see the `harness_boundary` marker in `training_log.jsonl`
+  and the restart command in this session's own transcript.
 
 - **Round-robin sanity check (iter_36 vs iter_29, iter_36 vs iter_26).**
   Asked for early in the iterations-37-40 investigation, explicitly
@@ -71,12 +63,42 @@ the record of *why*, this file is just the record of *what's outstanding*.
   and flagged "still open, don't build" per the 2026-08-31 approval message,
   awaiting an actual go-ahead. Pending a decision, not yet a "yes."
 
-- **Elo chain marker / reset for the opening-sampler fix.** Once a real fix
-  lands, gate results measure something structurally different (genuinely
-  diverse trials, not 6-12 repeated scenarios) and the existing Elo chain
-  (already reset once at iteration 26 for an analogous reason) won't be
-  comparable across that boundary. Explicitly: flag when the fix lands,
-  don't act unilaterally beforehand.
+- ~~**Elo chain marker / reset for the opening-sampler fix.**~~ **DONE
+  (2026-08-31).** One `harness_boundary` marker written to
+  `training_log.jsonl` at iteration 41, naming all three simultaneous
+  changes (eval sims, opening sampler, iteration-41 training changes) in a
+  single record, using the same `elo_chain_reset: true` mechanism as the
+  iteration-26 rebaseline - `compute_promoted_elo_chain` and
+  `find_elo_chain_reset_iteration` already handle it generically.
+  Deliberately does NOT set `new_best_checkpoint` (best.pt itself is
+  unchanged, still `iter_36.pt` - only the measuring stick and training
+  recipe change), which required fixing `derive_version_info` in
+  `export_weights.py`: its `best.pt` branch previously treated any
+  `elo_chain_reset` record as "this is the new best.pt", which would have
+  misattributed best.pt's identity to a marker that never touched it; its
+  per-checkpoint branch took the FIRST record matching an iteration number,
+  which would have let this marker (written before iteration 41's real
+  eval record, sharing its iteration number) shadow the real result once
+  `iter_41.pt` exists. Both fixed and tested (`test_elo_chain_markers.py`).
+
+- ~~**Iteration-41 training changes: symmetry augmentation + LR decay.**~~
+  **DONE (2026-08-31).** Neither existed anywhere in the codebase when
+  checked - built from scratch rather than assumed. `transform_state`/
+  `transform_policy` in `board_symmetry.py` apply a D4 symmetry to a
+  training example's state tensor and policy vector respectively, sharing
+  the same underlying index map `canonical_key` uses (so the two transforms
+  can't silently disagree about what a given symmetry means - verified
+  against every cell x symmetry combination on a 7x7 board).
+  `ReplayDataset(symmetry_augment=True)` applies one uniformly random
+  symmetry per example per access; opt-in via `--symmetry-augment`, off by
+  default. `lr_for_iteration` computes LR as a pure function of the global
+  iteration number (not a stateful scheduler, which would silently reset
+  to `base_lr` on every process restart - this run has restarted many
+  times); wired via `--lr-decay-gamma`/`--lr-decay-every`/
+  `--lr-decay-start-iteration`, gamma defaults to 1.0 (off) so it's opt-in
+  too. The iteration-41 restart used gamma=0.7, every=10,
+  start_iteration=41 - a 30% cut every 10 iterations from this boundary,
+  a judgment call (not user-specified numbers) flagged as such when made.
 
 ## Front end
 
