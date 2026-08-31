@@ -46,18 +46,30 @@ the record of *why*, this file is just the record of *what's outstanding*.
   sampler, would just be measuring the same collapsed handful of scenarios
   again. Worth redoing once the sampler fix lands, not before.
 
-- **Opening-sampler fix** (uniform-random opening plies, D4 canonicalise +
-  dedupe at generation time, distinctness-of-played-games as the hard
-  failure threshold, persisted `canonical_key`/`distinct_opening_count`).
-  Design approved 2026-08-31, gated on a validation test (does random-opening
-  diversity actually survive greedy continuation to move 20-50, the same way
-  policy-sampled openings didn't). Not built yet.
+- ~~**Opening-sampler fix**~~ **DONE (2026-08-31).** Validation test confirmed
+  uniform-random openings hold their diversity through move 20-50 (89-93
+  distinct of ~90-100, largest group never exceeding 2) where the old
+  policy-sampled openings collapsed (8-26 distinct, groups up to 54). Built
+  across four commits: `5d7880d` (`board_symmetry.py` D4 canonicalisation),
+  `86d776e` (uniform-random generator + generation-time dedup, replacing the
+  MCTS sampler), `f519881` (played-game distinctness invariant - raises
+  rather than returning a win rate if distinctness at move 20 or at final
+  position falls below 50%), `67019be` (logs the new metrics in `train.py`),
+  `b451add` (asserts `canonical_key`/`distinct_opening_count` survive the
+  `write_eval_breakdown` write). `opening_temperature` stays in
+  `evaluate_vs_checkpoint_2p_paired`'s signature but is unused - kept so
+  `train.py`'s call site didn't need touching. Side finding: this does NOT
+  fix the stalemate/dropout problem - see the no-progress draw rule below.
 
 - **No-progress draw rule** (a chess-fifty-move-style draw after N plies with
   no cell changing owner). Identified as the likely fix for the 100%-pinned-
-  at-cap stalemate pattern, but explicitly NOT yet agreed to build - waiting
-  on the random-opening draw-rate number to see whether diverse openings
-  change the picture first. Pending a decision, not yet a "yes."
+  at-cap stalemate pattern. The pending data point has now come in: even with
+  uniform-random openings, 34/34 (100%) of drawn games are still pinned at
+  exactly the 300-move cap - the opening-sampler fix does not touch this,
+  confirming it's a separate real problem, not an artifact of the collapsed
+  sampler. Still explicitly NOT yet agreed to build - this result was reported
+  and flagged "still open, don't build" per the 2026-08-31 approval message,
+  awaiting an actual go-ahead. Pending a decision, not yet a "yes."
 
 - **Elo chain marker / reset for the opening-sampler fix.** Once a real fix
   lands, gate results measure something structurally different (genuinely
