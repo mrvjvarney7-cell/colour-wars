@@ -324,14 +324,25 @@ def _play_paired_2p_games_batch_rust(candidate_net: ColourWarsNet, opponent_net:
         mid_checkpoint_ply=MID_GAME_DISTINCTNESS_CHECKPOINT, max_moves=max_moves,
     )
 
-    per_opening: list = [[] for _ in openings]
+    # Indexed by candidate_seat explicitly, NOT by arrival order: the two
+    # seat-games for one opening are separate games that can finish (and so
+    # appear in `records`) in EITHER order depending on which one happens to
+    # complete first in the real concurrent slot-pool execution (see
+    # paired_eval.rs) - a naive .append() would silently produce
+    # [seat1, seat0] whenever seat 1 finished first, breaking the
+    # [seat0_game_dict, seat1_game_dict] contract this function promises.
+    # Found via the 2026-08-31 compare_rust_eval.py parity investigation:
+    # its own zip(python_games, rust_games) comparison assumed positional
+    # correspondence, so this exact bug made same-opening/different-seat
+    # games look like divergent play when they were never paired at all.
+    per_opening: list = [[None, None] for _ in openings]
     for rec in records:
         mid_key = (
             canonical_key(board_from_flat(rec.mid_owners, rec.mid_counts, ROWS, COLS))
             if rec.mid_owners is not None else None
         )
         final_key = canonical_key(board_from_flat(rec.final_owners, rec.final_counts, ROWS, COLS))
-        per_opening[rec.opening_index].append({
+        per_opening[rec.opening_index][rec.candidate_seat] = {
             "candidate_seat": rec.candidate_seat,
             "decided": rec.decided,
             "candidate_score": rec.candidate_score,
@@ -339,7 +350,7 @@ def _play_paired_2p_games_batch_rust(candidate_net: ColourWarsNet, opponent_net:
             "reason": "decided" if rec.decided else "max_moves_reached (scored as draw)",
             "mid20_key": mid_key,
             "final_key": final_key,
-        })
+        }
     return per_opening
 
 

@@ -113,3 +113,41 @@ def test_batch_rust_reshapes_into_per_opening_seat_pairs(monkeypatch):
     assert draw0["reason"] == "max_moves_reached (scored as draw)"
     assert draw0["mid20_key"] is not None  # mid_owners was present
     assert draw0["move_count"] == 40
+
+
+def test_batch_rust_reshapes_correctly_even_when_seat1_finishes_first(monkeypatch):
+    # The real bug found 2026-08-31: the two seat-games for one opening are
+    # separate games that can finish (and so appear in `records`) in EITHER
+    # order in the real concurrent slot-pool execution - a naive .append()
+    # would silently produce [seat1, seat0] here, and compare_rust_eval.py's
+    # zip()-based comparison treated that as "divergent play" against
+    # python's always-[seat0, seat1] order, when the two games were never
+    # actually paired at all. Records deliberately arrive seat-1-first here.
+    final_owners, final_counts = _fake_board(0)
+
+    records = [
+        _FakeRustEvalGameRecord(0, 1, True, 0.0, 12, None, None, final_owners, final_counts),
+        _FakeRustEvalGameRecord(0, 0, True, 1.0, 20, None, None, final_owners, final_counts),
+    ]
+
+    class _FakeRs:
+        @staticmethod
+        def run_batched_paired_eval_rust(candidate_fn, opponent_fn, opening_actions, **kwargs):
+            return records
+
+    monkeypatch.setitem(sys.modules, "colourwars_rs", _FakeRs())
+    monkeypatch.setattr(
+        "colourwars.rust_selfplay._make_numpy_forward_fn",
+        lambda net, device: (lambda states: None),
+    )
+
+    openings = [{"opening_actions": [24, 17], "canonical_key": "k0"}]
+
+    per_opening = _play_paired_2p_games_batch_rust(
+        candidate_net=None, opponent_net=None, device=None,
+        num_simulations=4, openings=openings, max_moves=300, batch_size=8,
+    )
+
+    seat0, seat1 = per_opening[0]
+    assert seat0["candidate_seat"] == 0 and seat0["move_count"] == 20 and seat0["candidate_score"] == 1.0
+    assert seat1["candidate_seat"] == 1 and seat1["move_count"] == 12 and seat1["candidate_score"] == 0.0
