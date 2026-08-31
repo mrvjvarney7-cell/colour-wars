@@ -22,6 +22,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from colourwars.board_symmetry import transform_policy, transform_state, valid_symmetries
 from colourwars.evaluate import EvalDistinctnessError, evaluate_vs_random, evaluate_vs_checkpoint_2p_paired
 from colourwars.network import ColourWarsNet
 from colourwars.selfplay import TrainingExample, generate_selfplay_games, generate_selfplay_games_batched, play_one_game
@@ -41,6 +42,32 @@ STAGNATION_WINDOW = 5
 # run's log has Elo history for is anchored at INITIAL_ELO, and every later
 # rating is a relative estimate of strength gained or lost from there.
 INITIAL_ELO = 1000.0
+
+
+def lr_for_iteration(base_lr: float, iteration: int, decay_start_iteration: int,
+                      decay_every: int, decay_gamma: float) -> float:
+    """Learning rate for a given global iteration number under step decay:
+    base_lr * decay_gamma ** ((iteration - decay_start_iteration) // decay_every),
+    clamped to 0 steps before decay_start_iteration.
+
+    Deliberately a pure function of the GLOBAL iteration number, not a
+    stateful scheduler object (e.g. torch.optim.lr_scheduler.StepLR) stepped
+    once per iteration - a stateful scheduler resets to base_lr every time
+    the process restarts (optimizer state is never checkpointed - see
+    save_checkpoint/load_checkpoint, which only persist the network), and
+    this training run has already been restarted many times over its
+    history. A schedule that silently un-decays on every restart is exactly
+    the "stale process runs different code/values than what's on disk"
+    failure class this codebase has hit repeatedly (see AGREED_NOT_IMPLEMENTED.md);
+    computing purely from `iteration` makes the rate identical regardless of
+    how many times the process has been relaunched.
+
+    decay_gamma defaults to 1.0 (see --lr-decay-gamma) - a no-op multiplier,
+    so decay is off unless explicitly enabled, matching --eval-simulations'
+    already-learned lesson: don't let a numeric default silently start
+    doing something different than before."""
+    steps = max(0, iteration - decay_start_iteration) // decay_every
+    return base_lr * (decay_gamma ** steps)
 
 
 def win_rate_to_elo_diff(win_rate: float) -> float:
@@ -130,17 +157,31 @@ def check_stagnation(history: list) -> str | None:
 
 
 class ReplayDataset(Dataset):
-    def __init__(self, examples):
+    def __init__(self, examples, symmetry_augment: bool = False):
         self.examples = examples
+        # Off by default and must be explicitly opted into via
+        # --symmetry-augment - matches the "pin explicitly, don't let it
+        # come from a silent default" principle already applied to
+        # --eval-simulations elsewhere in this file, after that exact
+        # failure mode (a changed default silently taking effect on a
+        # process nobody re-launched with the new value in mind) bit this
+        # codebase once already.
+        self.symmetry_augment = symmetry_augment
 
     def __len__(self):
         return len(self.examples)
 
     def __getitem__(self, idx):
         ex: TrainingExample = self.examples[idx]
+        state, policy = ex.state, ex.policy
+        if self.symmetry_augment:
+            rows, cols = state.shape[-2], state.shape[-1]
+            sym = random.choice(valid_symmetries(rows, cols))
+            state = transform_state(state, sym)
+            policy = transform_policy(policy, sym, rows, cols)
         return (
-            torch.from_numpy(ex.state),
-            torch.from_numpy(ex.policy),
+            torch.from_numpy(state),
+            torch.from_numpy(policy),
             torch.from_numpy(ex.value),
         )
 
@@ -225,6 +266,22 @@ def main():
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr-decay-gamma", type=float, default=1.0,
+                         help="multiplicative LR decay factor per --lr-decay-every iterations - "
+                              "see lr_for_iteration. Default 1.0 is a no-op (decay OFF); must be "
+                              "set below 1.0 explicitly to enable it, same reasoning as "
+                              "--eval-simulations' now-fixed silent-default incident.")
+    parser.add_argument("--lr-decay-every", type=int, default=10,
+                         help="iterations per decay step (only matters if --lr-decay-gamma < 1.0)")
+    parser.add_argument("--lr-decay-start-iteration", type=int, default=0,
+                         help="global iteration number decay is computed relative to - pass the "
+                              "actual boundary iteration explicitly (e.g. 41) so the schedule's "
+                              "origin is a fixed constant, not something that silently shifts on "
+                              "a future --start-iteration for an unrelated resume")
+    parser.add_argument("--symmetry-augment", action="store_true",
+                         help="train on a uniformly random D4 symmetry of each example every "
+                              "epoch (see ReplayDataset) instead of always its original "
+                              "orientation. Off by default - opt in explicitly.")
     parser.add_argument("--replay-buffer-games", type=int, default=200,
                          help="max self-play GAMES worth of examples kept in the replay buffer")
     parser.add_argument("--eval-games", type=int, default=100,
@@ -351,8 +408,17 @@ def main():
         print(f"Self-play done in {time.time() - t0:.1f}s. "
               f"Replay buffer: {len(replay_buffer)} games, {len(flat_examples)} examples.")
 
-        dataset = ReplayDataset(flat_examples)
+        dataset = ReplayDataset(flat_examples, symmetry_augment=args.symmetry_augment)
         loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+
+        effective_lr = lr_for_iteration(
+            args.lr, iteration, args.lr_decay_start_iteration, args.lr_decay_every, args.lr_decay_gamma
+        )
+        for pg in optimizer.param_groups:
+            pg["lr"] = effective_lr
+        print(f"Learning rate this iteration: {effective_lr:.2e} (base {args.lr:.2e}, "
+              f"gamma={args.lr_decay_gamma}, every={args.lr_decay_every}, "
+              f"decay_start={args.lr_decay_start_iteration}, symmetry_augment={args.symmetry_augment})")
 
         t1 = time.time()
         for epoch in range(args.epochs):
