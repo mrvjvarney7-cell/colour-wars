@@ -387,6 +387,25 @@ def main():
               f"of {gating_result['attempted']} attempted, draws scored 0.5 each)")
         print(f"Gating dropout: {gating_drawn_at_cap} of {gating_result['attempted']} attempted "
               f"hit max_moves without a decision ({gating_dropout_rate:.1%}), {gating_decisive} decisive")
+        # First-class health metric alongside the dropout rate above - see
+        # the 2026-08-31 investigation, where the old MCTS-sampled openings
+        # looked like 100 independent games but had collapsed to ~12 real
+        # distinct positions by move 20. evaluate_vs_checkpoint_2p_paired
+        # already raises rather than returning a result if this collapses
+        # (see MIN_DISTINCTNESS_RATIO), so reaching this line means both
+        # ratios are healthy - logged anyway so the trend is visible over
+        # time, not just the pass/fail at each gate.
+        gating_mid20_reached = gating_result["games_reaching_mid20"]
+        gating_mid20_ratio = (
+            gating_result["distinct_at_mid20"] / gating_mid20_reached if gating_mid20_reached else 1.0
+        )
+        gating_final_ratio = (
+            gating_result["distinct_final"] / gating_result["attempted"] if gating_result["attempted"] else 1.0
+        )
+        print(f"Gating distinctness: {gating_result['distinct_at_mid20']} of {gating_mid20_reached} "
+              f"played games distinct at move 20 ({gating_mid20_ratio:.1%}), "
+              f"{gating_result['distinct_final']} of {gating_result['attempted']} distinct at final "
+              f"position ({gating_final_ratio:.1%})")
 
         write_eval_breakdown(iteration, gating_result)
 
@@ -447,6 +466,15 @@ def main():
             "win_rate_vs_best_decisive": gating_decisive,
             "win_rate_vs_best_drawn_at_cap": gating_drawn_at_cap,
             "win_rate_vs_best_dropout_rate": gating_dropout_rate,
+            # Played-game distinctness health metrics - see the print above
+            # and evaluate_vs_checkpoint_2p_paired's docstring. Reaching
+            # this line means both ratios already cleared MIN_DISTINCTNESS_
+            # RATIO (the function raises otherwise); logged for trend
+            # visibility, not as a second enforcement point.
+            "win_rate_vs_best_distinct_opening_count": gating_result["distinct_opening_count"],
+            "win_rate_vs_best_distinct_at_mid20": gating_result["distinct_at_mid20"],
+            "win_rate_vs_best_games_reaching_mid20": gating_mid20_reached,
+            "win_rate_vs_best_distinct_final": gating_result["distinct_final"],
             "win_rate_vs_random": win_rate_vs_random,
             "promoted": promoted,
             "iter_time_sec": iter_time,
