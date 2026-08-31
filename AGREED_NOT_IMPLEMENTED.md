@@ -14,6 +14,32 @@ the record of *why*, this file is just the record of *what's outstanding*.
 
 ## Training pipeline
 
+- **Rust port of the paired-eval hot path (`--eval-backend rust`).** Built
+  and committed 2026-08-31 (6 commits: `game.rs` flat_owners/flat_counts
+  extraction, new `rust/src/paired_eval.rs` driver + 8 unit tests,
+  `pybindings.rs`'s `run_batched_paired_eval_rust`, `evaluate.py`'s
+  `board_from_flat`/`_play_paired_2p_games_batch_rust`/`eval_backend` param,
+  `train.py`'s `--eval-backend`/`--eval-batch-size` flags, and
+  `compare_rust_eval.py` for parity verification). Motivated by iteration
+  41's real gate taking `iter_time_sec: 18067` (~5 hours) - confirming the
+  `py-spy`-based estimate from earlier - on a step that was never
+  Rust-accelerated, at a cost that applies to every future iteration too.
+  `--eval-backend` **defaults to `python`** (unchanged behaviour) and stays
+  that way - **do not flip the default without running
+  `compare_rust_eval.py` for real first and reviewing its output.** That
+  run itself is blocked on `maturin develop` being safe to run against the
+  shared environment: this is one long-running process (not one process per
+  iteration), so there is no natural "between subprocess launches" window
+  the way the original plan assumed - the live process has `colourwars_rs`
+  loaded continuously. Only genuinely safe options: pause training first,
+  or accept the (probably-recoverable: a clean file-in-use error, not
+  corruption) risk of running `maturin develop` while it's live. Needs an
+  explicit decision, not something to do unilaterally. The new Rust code
+  itself is verified as far as possible without that step: `cargo test`
+  (45/45 including the new module), and the PyO3 binding smoke-tested via
+  an isolated wheel build + throwaway venv (never touched the shared
+  environment or the live process).
+
 - **`--eval-max-moves` raise.** Recommended at some point before this
   document existed; never implemented. `git blame` shows exactly one commit
   (`93224eb`) ever touched that line, at `default=300`, and nothing since.
