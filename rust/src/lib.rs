@@ -1,6 +1,7 @@
 pub mod encoding;
 pub mod game;
 pub mod mcts;
+pub mod paired_eval;
 
 // A minimal PyO3 shim over ONLY the game engine is enabled here (behind the
 // "python" feature) purely to support the mandatory fuzz cross-check against
