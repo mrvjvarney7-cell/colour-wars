@@ -22,8 +22,11 @@ from colourwars.evaluate import (  # noqa: E402
 
 
 def test_generate_random_opening_returns_actions_and_a_canonical_key():
+    # <= 8, not == 8: random play can legitimately end the game early via
+    # cascade elimination (see test_distinct_openings_are_actually_distinct,
+    # which already accounts for this - this test just hadn't hit it yet).
     actions, key = _generate_random_opening(opening_plies=8)
-    assert len(actions) == 8
+    assert len(actions) <= 8
     assert all(isinstance(a, int) for a in actions)
     assert key is not None
 
