@@ -226,6 +226,18 @@ pub fn count_cells_for_player(board: &Board, player: u8) -> usize {
     board.iter_cells().filter(|c| c.owner == Some(player)).count()
 }
 
+/// Flat row-major owners, -1 for empty - the single source of truth for this
+/// extraction, used by both pybindings.rs's PyGameState::board_owners() and
+/// the paired-eval driver's board-snapshot output (see paired_eval.rs).
+pub fn flat_owners(board: &Board) -> Vec<i32> {
+    board.iter_cells().map(|c| c.owner.map_or(-1, |o| o as i32)).collect()
+}
+
+/// Flat row-major dot counts - see flat_owners.
+pub fn flat_counts(board: &Board) -> Vec<i32> {
+    board.iter_cells().map(|c| c.count).collect()
+}
+
 // ---- Game-level state ----
 
 #[derive(Clone, Debug)]
@@ -803,6 +815,15 @@ mod tests {
         for j in 0..4 {
             assert_eq!(placement_dots(&s, j), 1);
         }
+    }
+
+    #[test]
+    fn flat_owners_and_counts_use_minus_one_for_empty_and_stay_row_major() {
+        let mut board = Board::new(2, 3);
+        board.set(0, 1, Cell::new(Some(1), 2));
+        board.set(1, 2, Cell::new(Some(0), 3));
+        assert_eq!(flat_owners(&board), vec![-1, 1, -1, -1, -1, 0]);
+        assert_eq!(flat_counts(&board), vec![0, 2, 0, 0, 0, 3]);
     }
 
     #[test]

@@ -66,27 +66,12 @@ impl PyGameState {
 
     /// Flat row-major list of owners, -1 for empty.
     fn board_owners(&self) -> Vec<i32> {
-        let mut out = Vec::with_capacity(self.inner.rows * self.inner.cols);
-        for r in 0..self.inner.rows {
-            for c in 0..self.inner.cols {
-                out.push(match self.inner.board.get(r, c).owner {
-                    Some(o) => o as i32,
-                    None => -1,
-                });
-            }
-        }
-        out
+        game::flat_owners(&self.inner.board)
     }
 
     /// Flat row-major list of dot counts.
     fn board_counts(&self) -> Vec<i32> {
-        let mut out = Vec::with_capacity(self.inner.rows * self.inner.cols);
-        for r in 0..self.inner.rows {
-            for c in 0..self.inner.cols {
-                out.push(self.inner.board.get(r, c).count);
-            }
-        }
-        out
+        game::flat_counts(&self.inner.board)
     }
 
     fn is_valid_move(&self, row: i32, col: i32, player: u8) -> bool {
