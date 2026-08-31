@@ -168,7 +168,16 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
         info["preReset"] = (info["eloChainResetIteration"] is not None
                              and iteration < info["eloChainResetIteration"])
         for record in _read_training_log(training_log_path):
-            if record.get("iteration") == iteration:
+            # Skip pure elo_chain_reset markers here - a marker can share its
+            # iteration number with that same iteration's real eval record
+            # (e.g. a harness-boundary marker written just before that
+            # iteration runs, see the 2026-08-31 restart marker), and a
+            # marker has no winRateVsBest/promoted of its own to report for
+            # THIS specific checkpoint file. Falling through to the real
+            # record (which may appear later in the file) is what we want;
+            # a marker-only match (no real record for this iteration at all)
+            # correctly leaves the info fields at their None/null defaults.
+            if record.get("iteration") == iteration and not record.get("elo_chain_reset"):
                 info["winRateVsRandom"] = record.get("win_rate_vs_random")
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
                 info["promoted"] = record.get("promoted")
@@ -177,14 +186,22 @@ def derive_version_info(checkpoint_path: str, training_log_path: str = TRAINING_
                 break
     elif checkpoint_file == "best.pt":
         # best.pt is whichever candidate most recently became the reference -
-        # normally the last record with promoted=True, but an elo_chain_reset
+        # normally the last record with promoted=True, but a `new_best_checkpoint`
         # marker (see compute_promoted_elo_chain) explicitly overrides that
         # when best.pt was re-baselined outside the normal promotion path
         # (e.g. iteration 26, 2026-08-29 - promoted from bad eval data, not
         # a real win-rate check, so winRateVsBest/winRateVsRandom are left
         # null rather than showing a number that would mean nothing).
+        #
+        # Deliberately NOT `record.get("elo_chain_reset")` here - that field
+        # means "the Elo chain has a discontinuity here", which is a
+        # strictly weaker claim than "best.pt was rebaselined to a different
+        # checkpoint" (see the 2026-08-31 harness-boundary marker, which
+        # sets elo_chain_reset without changing which file IS best.pt).
+        # Using the broader field would misattribute best.pt's identity to
+        # a marker that never touched best.pt at all.
         for record in reversed(_read_training_log(training_log_path)):
-            if record.get("promoted") or record.get("elo_chain_reset"):
+            if record.get("promoted") or record.get("new_best_checkpoint"):
                 info["iteration"] = record.get("iteration")
                 info["winRateVsRandom"] = record.get("win_rate_vs_random")
                 info["winRateVsBest"] = record.get("win_rate_vs_best")
