@@ -12,6 +12,7 @@ use pyo3::types::PyTuple;
 use crate::encoding;
 use crate::game::{self, GameState};
 use crate::mcts;
+use crate::paired_eval;
 
 #[pyclass(name = "RustGameState")]
 #[derive(Clone)]
@@ -215,12 +216,131 @@ fn run_batched_selfplay_rust(
     Ok(out)
 }
 
+/// One paired-eval game's result: which opening/seat it was, how it ended,
+/// and raw flat board snapshots (see game::flat_owners/flat_counts) at the
+/// mid-game distinctness checkpoint (None if the game ended before reaching
+/// it) and at its own final position. Canonicalisation (D4 symmetry) stays
+/// in Python (board_symmetry.py) - deliberately not ported here, see
+/// paired_eval.rs's module docs.
+#[pyclass(name = "RustEvalGameRecord")]
+pub struct PyEvalGameRecord {
+    #[pyo3(get)]
+    opening_index: usize,
+    #[pyo3(get)]
+    candidate_seat: usize,
+    #[pyo3(get)]
+    decided: bool,
+    #[pyo3(get)]
+    candidate_score: f64,
+    #[pyo3(get)]
+    move_count: usize,
+    #[pyo3(get)]
+    mid_owners: Option<Vec<i32>>,
+    #[pyo3(get)]
+    mid_counts: Option<Vec<i32>>,
+    #[pyo3(get)]
+    final_owners: Vec<i32>,
+    #[pyo3(get)]
+    final_counts: Vec<i32>,
+}
+
+/// Plays `candidate_forward_fn` against `opponent_forward_fn` over every
+/// opening in `opening_actions`, each played twice (candidate in both
+/// seats) - the Rust equivalent of evaluate.py's per-opening loop over
+/// _play_paired_2p_games, batched for throughput via paired_eval.rs's
+/// run_batched_paired_eval. Move selection is always greedy (temperature 0,
+/// no root Dirichlet noise) - eval is deterministic given fixed networks
+/// and fixed openings, so unlike run_batched_selfplay_rust this takes no
+/// `seed` parameter: exposing one would misleadingly suggest eval is
+/// stochastic.
+///
+/// Both forward_fns share the same contract as run_batched_selfplay_rust's:
+/// `forward_fn(states: np.ndarray[k, NUM_PLANES, rows, cols]) -> (policy_logits[k, ACTION_DIM], values[k, MAX_PLAYERS])`.
+#[pyfunction]
+#[pyo3(signature = (
+    candidate_forward_fn, opponent_forward_fn, opening_actions,
+    num_simulations, batch_size, mid_checkpoint_ply=20, max_moves=300, c_puct=1.5
+))]
+#[allow(clippy::too_many_arguments)]
+fn run_batched_paired_eval_rust(
+    py: Python<'_>,
+    candidate_forward_fn: Bound<'_, PyAny>,
+    opponent_forward_fn: Bound<'_, PyAny>,
+    opening_actions: Vec<Vec<usize>>,
+    num_simulations: usize,
+    batch_size: usize,
+    mid_checkpoint_ply: usize,
+    max_moves: usize,
+    c_puct: f64,
+) -> PyResult<Vec<PyEvalGameRecord>> {
+    let mut candidate_closure = |states: &[f32], k: usize| -> (Vec<f32>, Vec<f32>) {
+        let flat = PyArray1::from_slice_bound(py, states);
+        let reshaped = flat
+            .reshape([k, encoding::NUM_PLANES, game::ROWS, game::COLS])
+            .expect("reshape of state batch failed");
+        let result = candidate_forward_fn.call1((reshaped,)).expect("candidate_forward_fn call failed");
+        let tuple: &Bound<PyTuple> =
+            result.downcast().expect("candidate_forward_fn must return a (policy_logits, values) tuple");
+        let policy_arr: PyReadonlyArray2<f32> =
+            tuple.get_item(0).unwrap().extract().expect("policy_logits must be a float32 numpy 2D array");
+        let value_arr: PyReadonlyArray2<f32> =
+            tuple.get_item(1).unwrap().extract().expect("values must be a float32 numpy 2D array");
+        let policy_vec = policy_arr.as_slice().expect("policy_logits must be C-contiguous").to_vec();
+        let value_vec = value_arr.as_slice().expect("values must be C-contiguous").to_vec();
+        (policy_vec, value_vec)
+    };
+    let mut opponent_closure = |states: &[f32], k: usize| -> (Vec<f32>, Vec<f32>) {
+        let flat = PyArray1::from_slice_bound(py, states);
+        let reshaped = flat
+            .reshape([k, encoding::NUM_PLANES, game::ROWS, game::COLS])
+            .expect("reshape of state batch failed");
+        let result = opponent_forward_fn.call1((reshaped,)).expect("opponent_forward_fn call failed");
+        let tuple: &Bound<PyTuple> =
+            result.downcast().expect("opponent_forward_fn must return a (policy_logits, values) tuple");
+        let policy_arr: PyReadonlyArray2<f32> =
+            tuple.get_item(0).unwrap().extract().expect("policy_logits must be a float32 numpy 2D array");
+        let value_arr: PyReadonlyArray2<f32> =
+            tuple.get_item(1).unwrap().extract().expect("values must be a float32 numpy 2D array");
+        let policy_vec = policy_arr.as_slice().expect("policy_logits must be C-contiguous").to_vec();
+        let value_vec = value_arr.as_slice().expect("values must be C-contiguous").to_vec();
+        (policy_vec, value_vec)
+    };
+
+    let results = paired_eval::run_batched_paired_eval(
+        &mut candidate_closure,
+        &mut opponent_closure,
+        &opening_actions,
+        num_simulations,
+        batch_size,
+        mid_checkpoint_ply,
+        max_moves,
+        c_puct,
+    );
+
+    Ok(results
+        .into_iter()
+        .map(|r| PyEvalGameRecord {
+            opening_index: r.opening_index,
+            candidate_seat: r.candidate_seat,
+            decided: r.decided,
+            candidate_score: r.candidate_score,
+            move_count: r.move_count,
+            mid_owners: r.mid_owners,
+            mid_counts: r.mid_counts,
+            final_owners: r.final_owners,
+            final_counts: r.final_counts,
+        })
+        .collect())
+}
+
 #[pymodule]
 fn colourwars_rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGameState>()?;
     m.add_class::<PyGameRecord>()?;
+    m.add_class::<PyEvalGameRecord>()?;
     m.add_function(wrap_pyfunction!(create_game, m)?)?;
     m.add_function(wrap_pyfunction!(play_move, m)?)?;
     m.add_function(wrap_pyfunction!(run_batched_selfplay_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(run_batched_paired_eval_rust, m)?)?;
     Ok(())
 }
