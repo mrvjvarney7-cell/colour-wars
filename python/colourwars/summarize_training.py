@@ -29,8 +29,18 @@ def main():
     for r in history[-args.last:]:
         when = datetime.datetime.fromtimestamp(r["timestamp"]).strftime("%Y-%m-%d %H:%M")
         if r.get("elo_chain_reset"):
-            print(f"  -- rebaseline: best.pt -> iteration {r.get('iteration')}, "
+            print(f"  -- rebaseline/boundary: iteration {r.get('iteration')}, "
                   f"Elo chain reset to {r.get('best_elo', 0):.0f} ({when}) --")
+            continue
+        if r.get("gated") is False:
+            # A gate that raised EvalDistinctnessError, not a real evaluated
+            # loss - distinct from "promoted: no" below, which means a gate
+            # ran and the candidate didn't clear the bar. Must not print via
+            # the normal row format: it has no win_rate_vs_best/promoted to
+            # show, and conflating the two is exactly what this record shape
+            # exists to prevent.
+            print(f"  -- iteration {r.get('iteration')}: UNGATED (eval gate refused to report "
+                  f"a win rate - see eval_breakdown_path in the log) ({when}) --")
             continue
         print(f"{r['iteration']:>5} {r['games']:>6} {r['examples_in_buffer']:>8} "
               f"{r['policy_loss']:>9.4f} {r['value_loss']:>9.4f} "

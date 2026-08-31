@@ -22,7 +22,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
-from colourwars.evaluate import evaluate_vs_random, evaluate_vs_checkpoint_2p_paired
+from colourwars.evaluate import EvalDistinctnessError, evaluate_vs_random, evaluate_vs_checkpoint_2p_paired
 from colourwars.network import ColourWarsNet
 from colourwars.selfplay import TrainingExample, generate_selfplay_games, generate_selfplay_games_batched, play_one_game
 
@@ -91,7 +91,9 @@ def check_stagnation(history: list) -> str | None:
     """Returns a human-readable warning string if the recent history shows no
     clear improvement (win rate vs previous-best stuck near 50%) or the
     losses look like they've plateaued/diverged, else None."""
-    # Non-eval marker records (e.g. an elo_chain_reset rebaseline) have no
+    # Non-eval marker records (an elo_chain_reset rebaseline/boundary, or an
+    # ungated iteration whose gate raised EvalDistinctnessError - see
+    # write_eval_breakdown's caller in main()) have no
     # win_rate_vs_best/policy_loss/value_loss - exclude them so they can't
     # crash the window logic below or silently widen it.
     history = [r for r in history if "win_rate_vs_best" in r]
@@ -367,11 +369,58 @@ def main():
               f"({args.eval_openings} paired 2p openings, up to {2 * args.eval_openings} games, "
               f"{args.opening_plies} plies @ T={args.opening_temperature} then greedy, "
               f"{args.eval_simulations} sims/move)...")
-        gating_result = evaluate_vs_checkpoint_2p_paired(
-            net, best_path, device, num_openings=args.eval_openings, num_simulations=args.eval_simulations,
-            opening_plies=args.opening_plies, opening_temperature=args.opening_temperature,
-            max_moves=args.eval_max_moves,
-        )
+        try:
+            gating_result = evaluate_vs_checkpoint_2p_paired(
+                net, best_path, device, num_openings=args.eval_openings, num_simulations=args.eval_simulations,
+                opening_plies=args.opening_plies, opening_temperature=args.opening_temperature,
+                max_moves=args.eval_max_moves,
+            )
+        except EvalDistinctnessError as e:
+            # The gate refused to report a win rate - that's correct
+            # behaviour, not a crash to propagate. e.result is the full
+            # partial breakdown computed before the check failed (every
+            # game that was actually played, with its own canonical_key) -
+            # persist it through the SAME write_eval_breakdown path a
+            # healthy gate uses, so this iteration is auditable the same
+            # way any other is, not a black box. This iteration then gets
+            # NO promotion decision and NO Elo entry - it is explicitly
+            # "gated": false in the log, never "promoted": false, since
+            # those mean completely different things (a gate that ran and
+            # said no, vs a gate that never rendered a verdict at all) and
+            # must not be conflated by anything reading the log later.
+            breakdown_path = write_eval_breakdown(iteration, e.result)
+            gate_error_message = (
+                f"Iteration {iteration}: eval gate REFUSED to report a win rate - {e} "
+                f"Full per-opening breakdown (including every played game's canonical_key) "
+                f"persisted to {breakdown_path} for audit. This iteration is UNGATED: no "
+                f"promotion decision, no Elo entry. Self-play continues to the next iteration "
+                f"from the current (untested-this-round) network as normal - it was never "
+                f"gated on this result to begin with."
+            )
+            print(f"\n*** {gate_error_message} ***\n")
+            iter_time = time.time() - t0
+            append_log({
+                "iteration": iteration,
+                "timestamp": time.time(),
+                "games": args.games_per_iter,
+                "examples_in_buffer": len(flat_examples),
+                "policy_loss": stats["policy_loss"],
+                "value_loss": stats["value_loss"],
+                "gating_harness": "2p_paired_v1",
+                "gated": False,
+                "gate_error": str(e),
+                "eval_breakdown_path": breakdown_path,
+                "iter_time_sec": iter_time,
+                # Carried forward unchanged (best.pt itself is untouched by
+                # an ungated iteration) so a resumed process's best_elo
+                # bootstrap (see the `for record in reversed(read_log())`
+                # scan below main's loop) finds a value on the very last
+                # record instead of needing to skip back further.
+                "best_elo": best_elo,
+            })
+            print(f"Iteration total time: {iter_time:.1f}s")
+            continue
+
         win_rate_vs_best = gating_result["win_rate"]
         gating_decisive = gating_result["wins"] + gating_result["losses"]
         gating_drawn_at_cap = gating_result["draws"]
