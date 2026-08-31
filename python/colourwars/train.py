@@ -314,6 +314,17 @@ def main():
                          help="ply cap per paired-eval game before it's scored as a 0.5/0.5 draw "
                               "(engine-tournament adjudication convention - never discarded, so the "
                               "denominator can't silently shrink with however many games grind out)")
+    parser.add_argument("--eval-backend", choices=["rust", "python"], default="python",
+                         help="python (default): original pure-Python single-game MCTS gating path - "
+                              "the trusted, production path. rust: colourwars_rs paired-eval "
+                              "engine+MCTS (same Rust backend self-play already uses) - much faster, "
+                              "but eval directly gates promotion (unlike --selfplay-backend, which "
+                              "only affects training-data generation), so this stays python by "
+                              "default until compare_rust_eval.py's verification results are reviewed "
+                              "and this default is explicitly changed - not something to opt into "
+                              "casually on a real training run.")
+    parser.add_argument("--eval-batch-size", type=int, default=64,
+                         help="--eval-backend rust only: concurrent games per MCTS round")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--start-iteration", type=int, default=1,
@@ -434,12 +445,13 @@ def main():
         print(f"Evaluating candidate vs previous best - GATING metric "
               f"({args.eval_openings} paired 2p openings, up to {2 * args.eval_openings} games, "
               f"{args.opening_plies} plies @ T={args.opening_temperature} then greedy, "
-              f"{args.eval_simulations} sims/move)...")
+              f"{args.eval_simulations} sims/move, eval_backend={args.eval_backend})...")
         try:
             gating_result = evaluate_vs_checkpoint_2p_paired(
                 net, best_path, device, num_openings=args.eval_openings, num_simulations=args.eval_simulations,
                 opening_plies=args.opening_plies, opening_temperature=args.opening_temperature,
                 max_moves=args.eval_max_moves,
+                eval_backend=args.eval_backend, eval_batch_size=args.eval_batch_size,
             )
         except EvalDistinctnessError as e:
             # The gate refused to report a win rate - that's correct
