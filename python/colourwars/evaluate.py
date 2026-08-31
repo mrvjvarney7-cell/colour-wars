@@ -12,9 +12,17 @@ import random
 import numpy as np
 import torch
 
+from colourwars.board_symmetry import canonical_key
 from colourwars.env import ColourWarsEnv
 from colourwars.mcts import run_mcts, visit_count_policy
 from colourwars.network import ColourWarsNet
+
+# How many random-opening attempts to allow per opening actually needed,
+# before giving up and raising rather than silently returning fewer than
+# asked for. Generous: on a 49-cell board this should be astronomically
+# unlikely to matter for any reasonable opening_plies/num_openings - see
+# _generate_distinct_random_openings.
+MAX_OPENING_ATTEMPTS_PER_OPENING = 50
 
 
 def _random_move(env: ColourWarsEnv) -> int:
@@ -75,29 +83,69 @@ def evaluate_vs_checkpoint(
     return wins / num_games
 
 
-def _generate_opening(net: ColourWarsNet, device, num_simulations: int,
-                       opening_plies: int, opening_temperature: float) -> list:
-    """Plays `opening_plies` moves of a fresh 2-player game using `net`'s own
-    MCTS at `opening_temperature` (no root noise - that would degrade search
-    quality itself rather than just diversify positions; temperature samples
-    among genuinely-good moves instead). Uses the fixed reference net (the
-    caller passes best.pt) rather than the candidate, so the distribution of
-    test positions stays constant across every candidate checked against a
-    given best.pt, and a candidate can't shape openings in its own favour.
-    Returns the list of actions taken, so the exact same opening can be
-    replayed (deterministically, via env.step - no re-search) for a
-    seat-swapped pairing."""
+def _generate_random_opening(opening_plies: int) -> tuple:
+    """Plays `opening_plies` moves of a fresh 2-player game using uniform-
+    random legal moves - no network, no MCTS, no policy at all. Replaces
+    the old MCTS-sampled-at-temperature approach: even at
+    opening_temperature=0.5, a strong reference network's own policy was
+    peaked enough that 100 nominally different openings collapsed to a
+    handful of positions by move 20 (see the 2026-08-31 eval-harness
+    investigation - 12 distinct out of 100, one group covering 54; the
+    formula `visit_counts ** (1/T)` SHARPENS for T<1, so 0.5 was making
+    this worse, not better). Uniform-random can't collapse the same way -
+    there's no policy to be peaked - and this was validated directly before
+    building it: 89 distinct out of 90 at move 20 for random openings
+    continued the same way, vs. 12 out of 100 for the old sampler.
+
+    Returns (actions, canonical_key) - the action list so the exact same
+    opening can be replayed deterministically (via env.step, no re-search)
+    for a seat-swapped pairing, and its D4-canonicalised position so the
+    caller can dedupe without re-deriving it."""
     env = ColourWarsEnv(2)
     actions = []
     for _ in range(opening_plies):
         if env.done:
             break
-        root = run_mcts(env, net, device, num_simulations=num_simulations, add_root_noise=False)
-        pi = visit_count_policy(root, env.rows * env.cols, temperature=opening_temperature)
-        action = int(np.random.choice(len(pi), p=pi))
+        legal = env.legal_moves()
+        action = int(random.choice(legal))
         env = env.step(action)
         actions.append(action)
-    return actions
+    return actions, canonical_key(env.state.board)
+
+
+def _generate_distinct_random_openings(num_openings: int, opening_plies: int) -> list:
+    """Generates `num_openings` openings, deduped under D4 canonical
+    position (board_symmetry.canonical_key) - "100 openings" should mean
+    100 genuinely distinct starting positions, not 100 labels that might
+    collapse onto a handful under symmetry. Retries a fresh random opening
+    on a collision; RAISES if it can't find enough within a generous
+    budget rather than silently returning fewer than asked for - on a
+    49-cell board this should be astronomically unlikely for any
+    reasonable opening_plies/num_openings, so hitting the budget means
+    something is actually wrong (opening_plies too small for the requested
+    count, or the random source isn't behaving), not routine variance.
+
+    Returns a list of {"opening_actions": [...], "canonical_key": ...}."""
+    seen_keys = set()
+    result = []
+    attempts = 0
+    max_attempts = num_openings * MAX_OPENING_ATTEMPTS_PER_OPENING
+    while len(result) < num_openings:
+        attempts += 1
+        if attempts > max_attempts:
+            raise RuntimeError(
+                f"Could not generate {num_openings} distinct (D4-canonicalised) random "
+                f"openings after {attempts - 1} attempts - only found {len(result)}. This "
+                f"should be astronomically unlikely for uniform-random openings; something "
+                f"is almost certainly wrong (opening_plies too small for the requested "
+                f"count, or the random source isn't actually random)."
+            )
+        actions, key = _generate_random_opening(opening_plies)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        result.append({"opening_actions": actions, "canonical_key": key})
+    return result
 
 
 def _play_paired_2p_games(candidate_net: ColourWarsNet, opponent_net: ColourWarsNet, device,
@@ -155,6 +203,12 @@ def evaluate_vs_checkpoint_2p_paired(
     advantage cancels instead of adding noise. A game that hits max_moves is
     scored as a 0.5/0.5 draw rather than discarded (see _play_paired_2p_games).
 
+    Openings are uniform-random legal moves, deduped under D4 symmetry, not
+    MCTS-sampled from a reference network (see _generate_distinct_random_
+    openings) - `opening_temperature` is accepted but no longer used; kept
+    in the signature so existing callers (train.py) don't need updating
+    just for this change.
+
     Returns a dict, not a bare float:
       win_rate: total candidate_score / attempted - attempted is always
         2 * num_openings now, since nothing is ever discarded from the
@@ -164,9 +218,13 @@ def evaluate_vs_checkpoint_2p_paired(
         candidate_seat/decided/candidate_score/move_count/reason) for
         diagnosing exactly which positions/seats produced the result.
     """
+    del opening_temperature  # unused - see docstring
+
     opponent = ColourWarsNet().to(device)
     opponent.load_state_dict(torch.load(checkpoint_path, map_location=device))
     opponent.eval()
+
+    openings = _generate_distinct_random_openings(num_openings, opening_plies)
 
     total_score = 0.0
     wins = 0
@@ -174,8 +232,8 @@ def evaluate_vs_checkpoint_2p_paired(
     losses = 0
     attempted = 0
     openings_breakdown = []
-    for opening_idx in range(num_openings):
-        opening_actions = _generate_opening(opponent, device, num_simulations, opening_plies, opening_temperature)
+    for opening_idx, opening in enumerate(openings):
+        opening_actions = opening["opening_actions"]
         games = _play_paired_2p_games(net, opponent, device, num_simulations, opening_actions, max_moves=max_moves)
         for g in games:
             attempted += 1
