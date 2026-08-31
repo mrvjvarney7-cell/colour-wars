@@ -252,6 +252,19 @@ impl Tree {
         }
         pi
     }
+
+    /// Raw (unnormalised) per-action visit counts at the root, 0 for
+    /// illegal/unvisited actions - for diagnostics comparing search
+    /// behaviour directly (e.g. against mcts.py's root.children[a].visit_count)
+    /// rather than through the lossy round-trip of reconstructing counts
+    /// from visit_count_policy()'s floats.
+    pub fn root_visit_counts(&self) -> Vec<u32> {
+        let mut counts = vec![0u32; ACTION_DIM];
+        for &(action, idx) in &self.nodes[0].children {
+            counts[action] = self.nodes[idx].visit_count;
+        }
+        counts
+    }
 }
 
 /// Runs MCTS on every tree in `trees` concurrently, mutating them in place,
@@ -525,6 +538,25 @@ mod tests {
         let pi = trees[0].visit_count_policy();
         let sum: f32 = pi.iter().sum();
         assert!((sum - 1.0).abs() < 1e-4, "policy should sum to 1, got {sum}");
+    }
+
+    #[test]
+    fn root_visit_counts_sum_to_num_simulations_and_match_the_policy() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let state = game::create_game(2, ROWS, COLS);
+        let mut trees = vec![Tree::new_root(state)];
+        let mut ff: Box<ForwardFn> = Box::new(dummy_forward_fn);
+        let num_simulations = 20;
+        run_batched_mcts(&mut trees, &mut *ff, num_simulations, 1.5, 0.3, 0.25, false, &mut rng);
+        let counts = trees[0].root_visit_counts();
+        let total: u32 = counts.iter().sum();
+        assert_eq!(total, num_simulations as u32, "root visit counts should sum to exactly num_simulations");
+
+        let pi = trees[0].visit_count_policy();
+        for (action, &count) in counts.iter().enumerate() {
+            let expected_frac = count as f32 / total as f32;
+            assert!((pi[action] - expected_frac).abs() < 1e-6, "action {action}: policy/count mismatch");
+        }
     }
 
     #[test]

@@ -333,6 +333,67 @@ fn run_batched_paired_eval_rust(
         .collect())
 }
 
+/// Diagnostic-only: runs MCTS on each of `opening_actions` (a 2-player
+/// position reached by replaying that action list from a fresh game), all
+/// in ONE batch - so the caller controls batch size directly by how many
+/// positions are passed - and returns each position's raw root visit
+/// counts (see Tree::root_visit_counts). Always greedy/noise-free
+/// (add_root_noise=false), matching eval's search conditions exactly.
+///
+/// Built for the 2026-08-31 compare_rust_eval.py parity investigation: lets
+/// a caller compare search behaviour directly (against mcts.py's own
+/// root.children[a].visit_count) instead of inferring it from downstream
+/// game outcomes, and - by passing the SAME position alone (batch size 1)
+/// vs. alongside others (batch size N) - isolates whether batch size itself
+/// changes a position's own numeric result, a known source of divergence in
+/// batched GPU inference independent of anything about the search logic.
+#[pyfunction]
+#[pyo3(signature = (forward_fn, opening_actions, num_simulations, c_puct=1.5))]
+fn debug_root_visit_counts_rust(
+    py: Python<'_>,
+    forward_fn: Bound<'_, PyAny>,
+    opening_actions: Vec<Vec<usize>>,
+    num_simulations: usize,
+    c_puct: f64,
+) -> PyResult<Vec<Vec<u32>>> {
+    let mut closure = |states: &[f32], k: usize| -> (Vec<f32>, Vec<f32>) {
+        let flat = PyArray1::from_slice_bound(py, states);
+        let reshaped = flat
+            .reshape([k, encoding::NUM_PLANES, game::ROWS, game::COLS])
+            .expect("reshape of state batch failed");
+        let result = forward_fn.call1((reshaped,)).expect("forward_fn call failed");
+        let tuple: &Bound<PyTuple> =
+            result.downcast().expect("forward_fn must return a (policy_logits, values) tuple");
+        let policy_arr: PyReadonlyArray2<f32> =
+            tuple.get_item(0).unwrap().extract().expect("policy_logits must be a float32 numpy 2D array");
+        let value_arr: PyReadonlyArray2<f32> =
+            tuple.get_item(1).unwrap().extract().expect("values must be a float32 numpy 2D array");
+        let policy_vec = policy_arr.as_slice().expect("policy_logits must be C-contiguous").to_vec();
+        let value_vec = value_arr.as_slice().expect("values must be C-contiguous").to_vec();
+        (policy_vec, value_vec)
+    };
+
+    use rand::SeedableRng;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0); // unused: add_root_noise is always false here
+
+    let mut trees: Vec<mcts::Tree> = opening_actions
+        .iter()
+        .map(|actions| {
+            let mut state = game::create_game(2, game::ROWS, game::COLS);
+            for &a in actions {
+                let row = a / game::COLS;
+                let col = a % game::COLS;
+                state = game::play_move(&state, row, col).state;
+            }
+            mcts::Tree::new_root(state)
+        })
+        .collect();
+
+    mcts::run_batched_mcts(&mut trees, &mut closure, num_simulations, c_puct, 0.3, 0.25, false, &mut rng);
+
+    Ok(trees.iter().map(|t| t.root_visit_counts()).collect())
+}
+
 #[pymodule]
 fn colourwars_rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGameState>()?;
@@ -342,5 +403,6 @@ fn colourwars_rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(play_move, m)?)?;
     m.add_function(wrap_pyfunction!(run_batched_selfplay_rust, m)?)?;
     m.add_function(wrap_pyfunction!(run_batched_paired_eval_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(debug_root_visit_counts_rust, m)?)?;
     Ok(())
 }
