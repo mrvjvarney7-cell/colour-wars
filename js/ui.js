@@ -121,11 +121,11 @@
   // drift this whole rework is meant to rule out.
   var ROUTE_FOR_SCREEN = {
     setup: 'play', game: 'game', history: 'games', rules: 'rules',
-    home: 'home', bots: 'bots', engine: 'engine', settings: 'settings'
+    home: 'home', bots: 'bots', engine: 'about', settings: 'settings'
   };
   var SCREEN_FOR_ROUTE = {
     play: 'setup', game: 'game', games: 'history', rules: 'rules',
-    home: 'home', bots: 'bots', engine: 'engine', settings: 'settings'
+    home: 'home', bots: 'bots', about: 'engine', engine: 'engine', settings: 'settings'
   };
 
   // The single place every screen transition goes through - every call site
@@ -205,13 +205,13 @@
   // build, but the flag stays so a future item can land the same way.
   var NAV_ITEMS = [
     { id: 'play', label: 'Play', built: true, action: function () { return backToSetup(); } },
+    { id: 'bots', label: 'Bots', built: true, action: function () { return openBots(); } },
+    { id: 'rules', label: 'Rules', built: true, action: function () { return openRules(); } },
+    { id: 'games', label: 'Games', built: true, action: function () { return openHistory(); } },
     { id: 'puzzle', label: 'Puzzle', built: true, action: function () { return openPuzzle(); } },
     { id: 'analysis', label: 'Analysis', built: true, action: function () { return openAnalysis(); } },
-    { id: 'bots', label: 'Bots', built: true, action: function () { return openBots(); } },
-    { id: 'games', label: 'Games', built: true, action: function () { return openHistory(); } },
-    { id: 'rules', label: 'Rules', built: true, action: function () { return openRules(); } },
-    { id: 'engine', label: 'Engine', built: true, action: function () { return openEngine(); } },
-    { id: 'settings', label: 'Settings', built: true, action: function () { return openSettings(); } }
+    { id: 'settings', label: 'Settings', built: true, action: function () { return openSettings(); } },
+    { id: 'about', label: 'About', built: true, action: function () { return openEngine(); } }
   ];
 
   function currentScreenName() {
@@ -232,7 +232,7 @@
     if (item.id === 'games') return current === 'history';
     if (item.id === 'rules') return current === 'rules';
     if (item.id === 'bots') return current === 'bots';
-    if (item.id === 'engine') return current === 'engine';
+    if (item.id === 'about') return current === 'engine';
     if (item.id === 'settings') return current === 'settings';
     if (item.id === 'puzzle') return inPuzzleMode === true;
     if (item.id === 'analysis') return inAnalysisMode === true;
@@ -462,9 +462,11 @@
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
   var playerListEl = document.getElementById('player-list');
   var startGameBtn = document.getElementById('start-game-btn');
+  var modelLoadErrorEl = document.getElementById('model-load-error');
 
   var turnLabelEl = document.getElementById('turn-label');
   var turnDotEl = document.getElementById('turn-dot');
+  var turnHelpEl = document.getElementById('turn-help');
   var playersStripEl = document.getElementById('players-strip');
   var statsPanelEl = document.getElementById('stats-panel');
   var boardEl = document.getElementById('board');
@@ -473,6 +475,16 @@
   var shareBtn = document.getElementById('share-btn');
   var exportGameBtn = document.getElementById('export-game-btn');
   var importGameBtn = document.getElementById('import-game-btn');
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+
+  function showToast(message) {
+    if (!toastEl) return;
+    clearTimeout(toastTimer);
+    toastEl.textContent = message;
+    toastEl.classList.remove('hidden');
+    toastTimer = setTimeout(function () { toastEl.classList.add('hidden'); }, 2400);
+  }
 
   var winDotEl = document.getElementById('win-dot');
   var winTitleEl = document.getElementById('win-title');
@@ -520,6 +532,7 @@
   var versionWeightsCache = {}; // iteration(number) -> weights object
   var versionInfoByIteration = {}; // iteration(number) -> {iteration, elo, winRateVsRandom, measuredOnFixedHarness, promoted}
   var availableVersions = []; // [{iteration, file, elo, winRateVsRandom, measuredOnFixedHarness}, ...] from index.json, newest first
+  var versionsLoadFailed = false;
 
   if (defaultIteration != null) {
     versionWeightsCache[defaultIteration] = window.AI_WEIGHTS;
@@ -533,8 +546,9 @@
       availableVersions.forEach(function (v) {
         if (!(v.iteration in versionInfoByIteration)) {
           versionInfoByIteration[v.iteration] = {
-            iteration: v.iteration, elo: v.elo, winRateVsRandom: v.winRateVsRandom,
-            measuredOnFixedHarness: v.measuredOnFixedHarness, preReset: v.preReset, promoted: true
+            iteration: v.iteration, generationLabel: v.generationLabel, elo: v.elo,
+            winRateVsRandom: v.winRateVsRandom, measuredOnFixedHarness: v.measuredOnFixedHarness,
+            preReset: v.preReset, promoted: true
           };
         }
       });
@@ -551,6 +565,8 @@
       // No network / fetch blocked (e.g. some browsers restrict fetch() for
       // file:// pages) - the default AI_WEIGHTS still works fine, there's
       // just nothing else to pick from.
+      versionsLoadFailed = true;
+      if (currentScreenName() === 'bots') renderBotsScreen();
     });
 
   // Resolves to weights.js's shape ({policyLogits-net weight tree}) for
@@ -710,6 +726,14 @@
   var botRosterEl = document.getElementById('bot-roster');
   var backFromBotsBtn = document.getElementById('back-from-bots-btn');
 
+  function allPlayableVersionsAscending() {
+    var versions = availableVersions.slice();
+    if (defaultIteration != null && !versions.some(function (v) { return v.iteration === defaultIteration; })) {
+      versions.push(versionInfoByIteration[defaultIteration] || { iteration: defaultIteration });
+    }
+    return versions.sort(function (a, b) { return a.iteration - b.iteration; });
+  }
+
   // Read-only roster view of the same ladder data buildVersionOptions()
   // already computes for the setup screen's <select> - presented as cards
   // to browse rather than options to pick, since picking who to actually
@@ -719,7 +743,14 @@
   function renderBotsScreen() {
     if (!botRosterEl) return;
     botRosterEl.innerHTML = '';
-    var ladder = ladderVersionsAscending();
+    if (availableVersions.length === 0 && !versionsLoadFailed) {
+      var loading = document.createElement('div');
+      loading.className = 'history-empty';
+      loading.textContent = 'Loading opponents...';
+      botRosterEl.appendChild(loading);
+      return;
+    }
+    var ladder = allPlayableVersionsAscending();
     if (ladder.length === 0) {
       var empty = document.createElement('div');
       empty.className = 'history-empty';
@@ -743,13 +774,13 @@
 
       var name = document.createElement('div');
       name.className = 'bot-card-name';
-      name.textContent = tier.name;
+      name.textContent = v.generationLabel ? v.generationLabel : (v.iteration === defaultIteration ? 'Production' : tier.name);
       body.appendChild(name);
 
       var meta = document.createElement('div');
       meta.className = 'bot-card-meta';
-      meta.textContent = 'Iteration ' + v.iteration + formatEloForDisplay(v) +
-        ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+      var difficulty = Math.max(1, Math.round(((rank + 1) / ladder.length) * 5));
+      meta.textContent = 'Difficulty ' + difficulty + ' of 5 · ' + versionPublicLabel(v);
       body.appendChild(meta);
 
       var record = stats.byBot[String(v.iteration)];
@@ -761,6 +792,24 @@
       }
 
       card.appendChild(body);
+
+      var play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'bot-card-play';
+      play.textContent = 'Play';
+      play.setAttribute('aria-label', 'Play against ' + name.textContent);
+      play.addEventListener('click', (function (iteration) {
+        return function () {
+          setup.numPlayers = 2;
+          setup.players[0].isAI = false;
+          setup.players[1].isAI = true;
+          setup.players[1].aiVersionIteration = iteration === defaultIteration ? null : iteration;
+          renderPlayerCountButtons();
+          renderPlayerList();
+          showScreen('setup');
+        };
+      })(v.iteration));
+      card.appendChild(play);
       botRosterEl.appendChild(card);
     });
   }
@@ -774,9 +823,7 @@
   }
   if (backFromBotsBtn) backFromBotsBtn.addEventListener('click', closeBots);
 
-  // ---------- Engine screen ----------
-  var engineChartEl = document.getElementById('engine-chart');
-  var engineStatsPanelEl = document.getElementById('engine-stats-panel');
+  // ---------- About screen ----------
   var backFromEngineBtn = document.getElementById('back-from-engine-btn');
 
   // Builds a small inline SVG line chart from availableVersions (the same
@@ -868,7 +915,6 @@
   }
 
   function openEngine() {
-    renderEngineScreen();
     return showScreen('engine');
   }
   function closeEngine() {
@@ -1062,7 +1108,8 @@
     for (var r = 0; r < rows; r++) {
       var rowEls = [];
       for (var c = 0; c < cols; c++) {
-        var cell = document.createElement('div');
+        var cell = document.createElement('button');
+        cell.type = 'button';
         cell.className = 'cell';
         cell.dataset.row = r;
         cell.dataset.col = c;
@@ -1176,12 +1223,14 @@
     var cellEl = cellEls[r][c];
     var data = board[r][c];
     var cluster = cellEl.querySelector('.dot-cluster');
+    var coordinate = toAlgebraic(r, c);
     if (data.owner === null || data.count === 0) {
       cellEl.classList.remove('owned');
       cellEl.classList.remove('critical');
       cellEl.style.removeProperty('--cell-color');
       cluster.innerHTML = '';
       cluster.removeAttribute('data-count');
+      cellEl.setAttribute('aria-label', coordinate + ', empty');
       return;
     }
     cellEl.classList.add('owned');
@@ -1197,6 +1246,7 @@
     }
     cluster.setAttribute('data-count', String(data.count));
     cluster.innerHTML = '';
+    cellEl.setAttribute('aria-label', coordinate + ', ' + state.players[data.owner].name + ', ' + data.count + (data.count === 1 ? ' dot' : ' dots'));
     for (var i = 0; i < data.count; i++) {
       var dot = document.createElement('div');
       dot.className = 'dot';
@@ -1217,6 +1267,11 @@
     turnLabelEl.textContent = p.name + "'s turn";
     turnDotEl.style.background = p.color;
     turnDotEl.style.color = p.color;
+    if (turnHelpEl) {
+      if (p.isAI) turnHelpEl.textContent = 'Board controls are paused while your opponent chooses a move.';
+      else if (!p.hasMoved) turnHelpEl.textContent = 'Opening move: choose any empty square to place three dots.';
+      else turnHelpEl.textContent = 'Choose one of your highlighted squares. Reach four dots to explode.';
+    }
   }
 
   // ---------- Quick position analysis (no search) ----------
@@ -1283,13 +1338,16 @@
     if (!evalBarEl) return;
     if (!analysis) {
       evalBarEl.classList.add('hidden');
+      evalBarEl.setAttribute('aria-hidden', 'true');
       return;
     }
     evalBarEl.classList.remove('hidden');
-    var pct = Math.round(analysis.winProbability * 100);
+    evalBarEl.setAttribute('aria-hidden', 'false');
+    var pct = Math.round((analysis.winProbability * 100) / 5) * 5;
     evalBarFillEl.style.height = pct + '%';
     evalBarFillEl.style.setProperty('--eval-bar-color', analysis.moverColor);
-    evalBarLabelEl.textContent = pct + '%';
+    evalBarLabelEl.textContent = '~' + pct + '%';
+    evalBarEl.setAttribute('aria-label', 'Position estimate for ' + state.players[state.currentPlayerIndex].name + ': about ' + pct + ' percent');
   }
 
   // Single entry point: computes the (possibly expensive-ish, though this
@@ -1410,6 +1468,7 @@
     for (var r = 0; r < cellEls.length; r++) {
       for (var c = 0; c < cellEls[r].length; c++) {
         cellEls[r][c].classList.remove('legal-move');
+        cellEls[r][c].setAttribute('aria-disabled', 'true');
       }
     }
   }
@@ -1427,6 +1486,7 @@
       for (var c2 = 0; c2 < state.cols; c2++) {
         if (GL.isValidMove(state.board, r2, c2, player, hasMoved)) {
           cellEls[r2][c2].classList.add('legal-move');
+          cellEls[r2][c2].setAttribute('aria-disabled', 'false');
         }
       }
     }
@@ -1453,7 +1513,7 @@
       if (p.isAI && p.aiVersionInfo && p.aiVersionInfo.iteration != null) {
         var verLabel = document.createElement('span');
         verLabel.className = 'player-chip-ai-version';
-        verLabel.textContent = 'iter ' + p.aiVersionInfo.iteration;
+        verLabel.textContent = versionPublicLabel(p.aiVersionInfo);
         chip.appendChild(verLabel);
       }
       playersStripEl.appendChild(chip);
@@ -1647,7 +1707,16 @@
     });
 
     var viewingCell = moveHistoryListEl.querySelector('.move-cell.viewing');
-    if (viewingCell) viewingCell.scrollIntoView({ block: 'nearest' });
+    if (viewingCell) {
+      // Keep only the move list in view. scrollIntoView() also moved the
+      // whole document on phones, hiding the turn status above the board.
+      var top = viewingCell.offsetTop;
+      var bottom = top + viewingCell.offsetHeight;
+      if (top < moveHistoryListEl.scrollTop) moveHistoryListEl.scrollTop = top;
+      else if (bottom > moveHistoryListEl.scrollTop + moveHistoryListEl.clientHeight) {
+        moveHistoryListEl.scrollTop = bottom - moveHistoryListEl.clientHeight;
+      }
+    }
   }
 
   // Displays boardHistory[viewIndex] read-only. When browsing (not live),
@@ -1665,6 +1734,7 @@
     } else {
       turnLabelEl.textContent = 'Viewing move ' + viewIndex + ' of ' + (boardHistory.length - 1);
       turnDotEl.style.background = 'transparent';
+      if (turnHelpEl) turnHelpEl.textContent = 'Use the move list or arrow keys to review. Return to the latest move to continue.';
       clearLegalMoveHighlights();
     }
     renderMoveHistoryList();
@@ -1966,6 +2036,7 @@
   // every seat's own pick to be ready first, so a seat never silently starts
   // on the wrong (default) network because of a race.
   function startGame() {
+    if (modelLoadErrorEl) modelLoadErrorEl.classList.add('hidden');
     var neededIterations = [];
     for (var i = 0; i < setup.numPlayers; i++) {
       var p = setup.players[i];
@@ -1982,18 +2053,17 @@
     startGameBtn.disabled = true;
     var originalLabel = startGameBtn.textContent;
     startGameBtn.textContent = 'Loading AI…';
-    Promise.all(neededIterations.map(function (it) {
-      // Swallow per-version failures here (not just at the end) so one bad
-      // fetch can't stop Promise.all from ever resolving for the rest -
-      // resolveAiWeightsForPlayer() falls back to the default for whichever
-      // seat's version still isn't in the cache once we get here.
-      return ensureVersionWeightsLoaded(it).catch(function (err) {
-        console.error('Could not load AI version ' + it + ' before starting - that seat will use the default instead.', err);
-      });
-    })).then(function () {
+    Promise.all(neededIterations.map(ensureVersionWeightsLoaded)).then(function () {
       startGameBtn.disabled = false;
       startGameBtn.textContent = originalLabel;
       startGameNow();
+    }).catch(function () {
+      startGameBtn.disabled = false;
+      startGameBtn.textContent = 'Retry loading opponent';
+      if (modelLoadErrorEl) {
+        modelLoadErrorEl.textContent = 'That opponent could not be loaded. Check your connection, then retry or choose Latest.';
+        modelLoadErrorEl.classList.remove('hidden');
+      }
     });
   }
 
@@ -2526,7 +2596,9 @@
   // the text pre-filled and selected, so it's always at least copyable by hand.
   function copyToClipboardOrPrompt(text, promptMessage) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).catch(function () {
+      navigator.clipboard.writeText(text).then(function () {
+        showToast('Copied to clipboard');
+      }).catch(function () {
         window.prompt(promptMessage, text);
       });
     } else {
@@ -2690,6 +2762,9 @@
   var homeRecentFieldEl = document.getElementById('home-recent-field');
   var homeRecentListEl = document.getElementById('home-recent-list');
   var homePlayBtn = document.getElementById('home-play-btn');
+  var homeBotsBtn = document.getElementById('home-bots-btn');
+  var homeRulesBtn = document.getElementById('home-rules-btn');
+  var homeNoticeEl = document.getElementById('home-notice');
 
   function renderHome() {
     // Deliberately NOT isGameInProgress() - that helper also requires the
@@ -2703,7 +2778,6 @@
     if (homePuzzleFieldEl) homePuzzleFieldEl.classList.toggle('hidden', !hasPuzzle);
 
     var ladder = ladderVersionsAscending();
-    if (homeLadderFieldEl) homeLadderFieldEl.classList.toggle('hidden', ladder.length === 0);
     if (homeLadderPanelEl && ladder.length > 0) {
       // Every bot is playable immediately (no unlock gating), so this shows
       // an achievement instead of a progress gate: the strongest one you've
@@ -2716,14 +2790,17 @@
         var record = stats.byBot[String(v.iteration)];
         if (record && record.wins > 0) bestRank = i;
       });
+      if (homeLadderFieldEl) homeLadderFieldEl.classList.toggle('hidden', bestRank < 0);
       var tier = bestRank >= 0 ? botTierForRank(bestRank) : null;
       homeLadderPanelEl.innerHTML = '';
       var row = document.createElement('div');
       row.className = 'stat-line';
       row.textContent = tier
-        ? 'Strongest bot beaten: ' + tier.avatar + ' ' + tier.name + ' (iteration ' + ladder[bestRank].iteration + ')'
-        : 'No bots beaten yet';
+        ? 'Strongest bot beaten: ' + tier.avatar + ' ' + tier.name
+        : '';
       homeLadderPanelEl.appendChild(row);
+    } else if (homeLadderFieldEl) {
+      homeLadderFieldEl.classList.add('hidden');
     }
 
     var history = loadGameHistory();
@@ -2765,6 +2842,8 @@
   if (homeContinueBtn) homeContinueBtn.addEventListener('click', function () { showScreen('game'); });
   if (homePuzzleBtn) homePuzzleBtn.addEventListener('click', openPuzzle);
   if (homePlayBtn) homePlayBtn.addEventListener('click', backToSetup);
+  if (homeBotsBtn) homeBotsBtn.addEventListener('click', openBots);
+  if (homeRulesBtn) homeRulesBtn.addEventListener('click', openRules);
 
   // A ?cwn=<encoded position> URL (see shareCurrentPosition) loads straight
   // into that position instead of the normal setup screen - and always wins
@@ -2789,6 +2868,10 @@
       loadedFromCwn = true;
     } catch (e) {
       console.error('Invalid ?cwn= link, falling back to normal setup.', e);
+      if (homeNoticeEl) {
+        homeNoticeEl.textContent = 'This shared position is invalid or incomplete. You can still start a new game below.';
+        homeNoticeEl.classList.remove('hidden');
+      }
     }
   }
 

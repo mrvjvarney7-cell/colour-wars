@@ -61,6 +61,18 @@ body {
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
+  overflow-x: hidden;
+}
+
+button, input, select { font: inherit; }
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible,
+.cell:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 75%, white);
+  outline-offset: 2px;
 }
 
 .screen {
@@ -71,6 +83,22 @@ body {
 }
 
 .hidden { display: none !important; }
+
+.toast {
+  position: fixed;
+  z-index: 300;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
 
 /* ---------- App shell / navigation ----------
    Mobile-first: .nav-panel's base rules below are the OFF-CANVAS DRAWER
@@ -94,6 +122,11 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+.app-main > .screen:not(#game-screen):not(#win-screen) {
+  width: 100%;
+  padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
 }
 
 /* Locks background scroll while the mobile drawer is open - without this,
@@ -310,11 +343,6 @@ body.is-animating .nav-scrim {
 .nav-action-btn:disabled { opacity: 0.4; cursor: default; }
 .nav-action-btn:disabled:hover { background: none; }
 
-.nav-panel .build-tag {
-  margin-top: auto;
-  padding-top: 8px;
-}
-
 @media (min-width: 860px) {
   /* nav-panel and .app-shell are plain siblings under <body> - on mobile
      that's fine (nav-panel is position:fixed there, out of normal flow
@@ -348,8 +376,7 @@ body.is-animating .nav-scrim {
   .nav-panel.collapsed .nav-logo-title,
   .nav-panel.collapsed .nav-list,
   .nav-panel.collapsed .nav-divider,
-  .nav-panel.collapsed .nav-actions,
-  .nav-panel.collapsed .build-tag {
+  .nav-panel.collapsed .nav-actions {
     display: none;
   }
 
@@ -363,8 +390,7 @@ body.is-animating .nav-scrim {
 /* ---------- Setup screen ---------- */
 
 #setup-screen {
-  justify-content: center;
-  padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+  justify-content: flex-start;
 }
 
 .setup-card {
@@ -388,6 +414,54 @@ body.is-animating .nav-scrim {
   text-align: center;
   color: var(--text-dim);
   font-size: 14px;
+}
+
+.home-card { max-width: 520px; }
+
+.home-lede,
+.about-lede {
+  margin: -12px auto 0;
+  max-width: 430px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.home-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.home-how {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-how li {
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 2px solid var(--line);
+}
+
+.home-how b,
+.home-how span { display: block; }
+.home-how b { margin-bottom: 4px; font-size: 14px; }
+.home-how span { color: var(--text-dim); font-size: 13px; line-height: 1.4; }
+
+.notice {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #f97316 55%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, #f97316 10%, var(--panel));
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .field {
@@ -650,6 +724,19 @@ body.is-animating .nav-scrim {
   border: 1px solid var(--line);
 }
 
+.bot-card-play {
+  flex-shrink: 0;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .bot-card-avatar {
   font-size: 28px;
   flex-shrink: 0;
@@ -675,19 +762,6 @@ body.is-animating .nav-scrim {
   color: var(--text-dim);
 }
 
-.engine-chart {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 10px;
-}
-
-.elo-chart-svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
 .settings-data-note {
   font-size: 12px;
   color: var(--text-dim);
@@ -696,15 +770,6 @@ body.is-animating .nav-scrim {
 
 .rules-section p b {
   color: var(--text);
-}
-
-.build-tag {
-  margin: -10px 0 0;
-  text-align: center;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-  opacity: 0.5;
 }
 
 .ai-version-tag {
@@ -902,6 +967,8 @@ body.is-animating .nav-scrim {
   align-items: center;
   justify-content: space-between;
   padding: 6px 4px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .turn-indicator {
@@ -912,6 +979,13 @@ body.is-animating .nav-scrim {
   font-weight: 700;
   transition: opacity 0.15s ease;
   flex-wrap: wrap;
+}
+
+.turn-help {
+  width: 100%;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .ai-thinking {
@@ -1113,6 +1187,7 @@ body.is-animating .nav-scrim {
   align-items: stretch;
   gap: 8px;
   width: 100%;
+  min-width: 0;
 }
 
 /* Eval bar (T1): win probability for the side to move, from a single
@@ -1154,7 +1229,9 @@ body.is-animating .nav-scrim {
 
 .board-wrap {
   position: relative;
-  width: 100%;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
   aspect-ratio: 1;
 }
 
@@ -1187,6 +1264,8 @@ body.is-animating .nav-scrim {
   justify-content: center;
   cursor: pointer;
   transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+  color: inherit;
+  padding: 0;
 }
 
 .cell-coord {
@@ -1360,6 +1439,51 @@ body.is-animating .nav-scrim {
   align-items: center;
   justify-content: center;
   z-index: 10;
+}
+
+@media (max-width: 479px) {
+  #setup-screen { padding-inline: 14px; }
+  .setup-card { gap: 18px; }
+  .home-actions,
+  .home-how { grid-template-columns: 1fr; }
+  .home-how { gap: 8px; }
+  .home-how li { display: grid; grid-template-columns: 64px 1fr; gap: 8px; }
+  .home-how b { margin: 0; }
+
+  #game-screen {
+    padding: 8px 8px calc(14px + env(safe-area-inset-bottom));
+  }
+  .game-main { gap: 8px; }
+  .turn-indicator { font-size: 17px; }
+  .players-strip { gap: 6px; }
+  .player-chip { padding: 5px 8px; }
+  .stats-panel { overflow: hidden; }
+  .stat-row {
+    grid-template-columns: 10px minmax(70px, 1fr) auto;
+    gap: 6px;
+  }
+  .stat-row .stat-value:nth-of-type(4),
+  .stat-row .stat-value:nth-of-type(5) { display: none; }
+  .eval-bar { width: 18px; }
+  .board { gap: 3px; padding: 4px; border-radius: 14px; }
+  .cell { border-radius: 7px; }
+  .cell-coord { top: 2px; left: 3px; font-size: 8px; }
+  .move-history-list { max-height: 132px; }
+  .bot-card { align-items: flex-start; }
+  .bot-card-play { align-self: center; }
+}
+
+@media (min-width: 480px) and (min-height: 680px) {
+  #setup-screen { justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 .win-card {

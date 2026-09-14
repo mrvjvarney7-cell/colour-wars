@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<meta name="description" content="Colour Wars is a competitive 7×7 chain-reaction strategy game for people and playable AI opponents.">
 <!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
      no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
      browsers, especially mobile ones, can hold a stale copy well past a
@@ -12,7 +14,7 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=59">
+<link rel="stylesheet" href="style.css?v=60">
 </head>
 <body>
 
@@ -22,6 +24,7 @@
        move underneath it. Always paired with the drawer's own overlay
        treatment; see style.css for why backdrop-filter alone isn't enough. -->
   <div class="nav-scrim hidden" id="nav-scrim"></div>
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
 
   <!-- The ONE nav surface - presented as a sliding mobile drawer or a
        persistent desktop sidebar purely via CSS (see style.css's 860px
@@ -71,7 +74,6 @@
          increments on every asset change; this only changes on an actual
          versioned release). Also lets us confirm which build a device is
          actually running, since mobile browsers cache aggressively. -->
-    <p class="build-tag">ColourWarsBeta1.0</p>
   </nav>
 
   <div class="app-shell">
@@ -109,9 +111,11 @@
            (in-memory game state, local history, the ladder helpers used by
            Bots/setup) and hidden entirely when there's nothing to show. -->
       <section id="home-screen" class="screen">
-        <div class="setup-card">
+        <div class="setup-card home-card">
           <h1 class="title">Colour Wars</h1>
-          <p class="subtitle">Pass-and-play chain reaction strategy</p>
+          <p class="home-lede">Build pressure, trigger chain reactions, and take the board.</p>
+
+          <div class="notice hidden" id="home-notice" role="status"></div>
 
           <div class="field hidden" id="home-continue-field">
             <button id="home-continue-btn" class="primary-btn" type="button">Continue game</button>
@@ -133,6 +137,16 @@
           </div>
 
           <button id="home-play-btn" class="primary-btn" type="button">Play a new game</button>
+          <div class="home-actions">
+            <button id="home-bots-btn" class="secondary-btn" type="button">Choose an opponent</button>
+            <button id="home-rules-btn" class="secondary-btn" type="button">How to play</button>
+          </div>
+
+          <ol class="home-how" aria-label="How Colour Wars works">
+            <li><b>Place</b><span>Your opening move starts with three dots.</span></li>
+            <li><b>Explode</b><span>Reach four dots to burst into neighbouring cells.</span></li>
+            <li><b>Capture</b><span>Chain reactions convert territory. Last colour standing wins.</span></li>
+          </ol>
         </div>
       </section>
 
@@ -150,9 +164,10 @@
           <div class="field">
             <div class="field-label">Colours &amp; opponents</div>
             <div id="player-list" class="player-list"></div>
+            <div class="notice hidden" id="model-load-error" role="alert"></div>
             <label class="ai-insight-toggle hidden" id="ai-insight-toggle">
               <input type="checkbox" id="ai-insight-toggle-input" checked>
-              Show AI thinking status, win chance &amp; considered moves
+              Show opponent thinking and move hints
             </label>
             <!-- Only shown once we know an elo_chain_reset actually happened
                  (see window.AI_VERSION.eloChainResetIteration) - explains why
@@ -162,13 +177,13 @@
           </div>
 
           <div class="field">
-            <div class="field-label">Analysis</div>
+            <div class="field-label">Board hints</div>
             <!-- Not gated behind any AI seat being in play - a neutral analysis
                  engine (the default bundled network), same idea as a chess
                  site's eval bar not caring which bot you're actually playing. -->
             <label class="ai-insight-toggle" id="policy-heatmap-toggle">
               <input type="checkbox" id="policy-heatmap-toggle-input">
-              Show policy heatmap
+              Show suggested moves
             </label>
           </div>
 
@@ -243,8 +258,8 @@
            Play. -->
       <section id="bots-screen" class="screen hidden">
         <div class="setup-card">
-          <h1 class="title">Bots</h1>
-          <p class="subtitle">Every promoted iteration, ready to play</p>
+          <h1 class="title">Opponents</h1>
+          <p class="subtitle">Choose a challenge, then start a game</p>
           <div class="field">
             <div class="bot-roster" id="bot-roster"></div>
           </div>
@@ -252,18 +267,23 @@
         </div>
       </section>
 
-      <!-- Engine - the same js/ai/versions/index.json already fetched for
-           the setup screen's version picker, shown as an Elo curve instead
-           of a dropdown. -->
+      <!-- Product information. The element id is retained to avoid breaking
+           old cached links while the public route is now #/about. -->
       <section id="engine-screen" class="screen hidden">
-        <div class="setup-card">
-          <h1 class="title">Engine</h1>
-          <p class="subtitle">Elo across every promoted iteration</p>
-          <div class="field">
-            <div id="engine-chart" class="engine-chart"></div>
+        <div class="setup-card rules-card">
+          <h1 class="title">About Colour Wars</h1>
+          <p class="about-lede">A quick, tactical board game where one move can transform the whole position.</p>
+          <div class="rules-section">
+            <h2>Play your way</h2>
+            <p>Share one device with friends or turn any seat into a computer opponent. Games support two to four colours on the same 7×7 board.</p>
           </div>
-          <div class="field">
-            <div class="stats-panel" id="engine-stats-panel"></div>
+          <div class="rules-section">
+            <h2>Strategy you can read</h2>
+            <p>Legal moves are marked on the board. Hover a move—or press and hold on touch screens—to preview cells that will explode.</p>
+          </div>
+          <div class="rules-section">
+            <h2>Private by default</h2>
+            <p>Your settings and game history stay in this browser. Shared position links contain only the board position needed to reopen the game.</p>
           </div>
           <button id="back-from-engine-btn" class="primary-btn" type="button">Back</button>
         </div>
@@ -289,11 +309,11 @@
             <div class="field-label">Defaults for new games</div>
             <label class="ai-insight-toggle" id="settings-ai-insight-default-row">
               <input type="checkbox" id="settings-ai-insight-default-input">
-              Show AI thinking status by default
+              Show opponent thinking and move hints by default
             </label>
             <label class="ai-insight-toggle" id="settings-policy-heatmap-default-row">
               <input type="checkbox" id="settings-policy-heatmap-default-input">
-              Show policy heatmap by default
+              Show suggested moves by default
             </label>
           </div>
 
@@ -326,6 +346,7 @@
                      and correct/incorrect result. Only shown in puzzle mode. -->
                 <span id="puzzle-feedback" class="ai-insight hidden"></span>
               </div>
+              <span class="turn-help" id="turn-help"></span>
             </header>
 
             <div class="players-strip" id="players-strip"></div>
@@ -344,7 +365,7 @@
                 </div>
               </div>
               <div class="board-wrap">
-                <div class="board" id="board"></div>
+              <div class="board" id="board" role="group" aria-label="Colour Wars board"></div>
                 <div class="fx-layer" id="fx-layer"></div>
               </div>
             </div>
@@ -371,12 +392,12 @@
     </div>
   </div>
 
-  <script src="js/gameLogic.js?v=59"></script>
-  <script src="js/ai/encode.js?v=59"></script>
-  <script src="js/ai/network.js?v=59"></script>
-  <script src="js/ai/mcts.js?v=59"></script>
-  <script src="js/ai/weights.js?v=59"></script>
-  <script src="js/ui.js?v=59"></script>
+  <script src="js/gameLogic.js?v=60"></script>
+  <script src="js/ai/encode.js?v=60"></script>
+  <script src="js/ai/network.js?v=60"></script>
+  <script src="js/ai/mcts.js?v=60"></script>
+  <script src="js/ai/weights.js?v=60"></script>
+  <script src="js/ui.js?v=60"></script>
 <script>
     // Covers Analysis mode (T-Analysis): loading a position via a bare CWN
     // paste and via a full share-link paste, the eval bar/policy heatmap
