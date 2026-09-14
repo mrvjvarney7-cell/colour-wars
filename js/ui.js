@@ -598,6 +598,13 @@
     return setup.players.slice(0, setup.numPlayers).some(function (p) { return p.isAI; });
   }
 
+  // G-series models use their generation name publicly; legacy models keep
+  // their iteration identity. The numeric schedule value remains the cache
+  // key, preserving old saved games and the existing I36 selection.
+  function versionPublicLabel(v) {
+    return v && v.generationLabel ? v.generationLabel : ('I' + v.iteration);
+  }
+
   var eloResetNoteEl = document.getElementById('elo-reset-note');
 
   function updateAiInsightToggleVisibility() {
@@ -663,8 +670,10 @@
     var ladder = ladderVersionsAscending();
     ladder.forEach(function (v, rank) {
       var tier = botTierForRank(rank);
-      var label = tier.avatar + ' ' + tier.name + formatEloForDisplay(v) +
-        ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+      var label = versionPublicLabel(v) + ' · ' + tier.avatar + ' ' + tier.name + formatEloForDisplay(v);
+      if (typeof v.winRateVsRandom === 'number') {
+        label += ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
+      }
       opts.push({ value: String(v.iteration), label: label });
     });
     return opts;

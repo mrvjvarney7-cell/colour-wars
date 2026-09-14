@@ -86,5 +86,14 @@
     "winRateVsRandom": 1.0,
     "measuredOnFixedHarness": true,
     "preReset": false
+  },
+  {
+    "iteration": 53,
+    "generationLabel": "G1",
+    "file": "g1.json",
+    "elo": null,
+    "winRateVsRandom": null,
+    "measuredOnFixedHarness": true,
+    "preReset": false
   }
 ]

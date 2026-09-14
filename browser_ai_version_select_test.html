@@ -438,13 +438,14 @@
             }
             if (!optionsCheck.ok) return report({ ok: false, errors: errors, optionsCheck: optionsCheck });
 
-            // Pick two DIFFERENT non-default iterations, one per seat.
+            // Regression boundary: G1 uses schedule key 53, while the
+            // production I36 checkpoint must remain independently playable.
             var nonDefaultValues = Array.from(sel1.options).map(function (o) { return o.value; }).filter(function (v) { return v !== ''; });
-            if (nonDefaultValues.length < 2) {
-              return fail('need at least 2 non-default versions available to test independence, got ' + nonDefaultValues.length);
+            if (AI_VERSION.iteration !== 36 || nonDefaultValues.indexOf('53') === -1) {
+              return fail('expected default I36 and G1 (schedule key 53); default=' + AI_VERSION.iteration + ', choices=' + nonDefaultValues.join(', '));
             }
-            var iterForSeat1 = nonDefaultValues[nonDefaultValues.length - 1]; // oldest/weakest
-            var iterForSeat2 = nonDefaultValues[0]; // newest available besides the default
+            var iterForSeat1 = '';
+            var iterForSeat2 = '53';
 
             sel1.value = iterForSeat1;
             sel1.dispatchEvent(new Event('change'));
@@ -482,8 +483,8 @@
             var chipCheck = { ok: true };
             var seat1Label = chips[1] ? chips[1].querySelector('.player-chip-ai-version') : null;
             var seat2Label = chips[2] ? chips[2].querySelector('.player-chip-ai-version') : null;
-            if (!seat1Label || seat1Label.textContent !== 'iter ' + iterForSeat1) {
-              chipCheck = { ok: false, reason: 'seat 1 chip should show iter ' + iterForSeat1 + ', got "' + (seat1Label ? seat1Label.textContent : null) + '"' };
+            if (!seat1Label || seat1Label.textContent !== 'iter 36') {
+              chipCheck = { ok: false, reason: 'seat 1 chip should show default I36, got "' + (seat1Label ? seat1Label.textContent : null) + '"' };
             } else if (!seat2Label || seat2Label.textContent !== 'iter ' + iterForSeat2) {
               chipCheck = { ok: false, reason: 'seat 2 chip should show iter ' + iterForSeat2 + ', got "' + (seat2Label ? seat2Label.textContent : null) + '"' };
             }
