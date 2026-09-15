@@ -35,6 +35,8 @@ SCENARIOS = [
     ("mid-session", ""),
     ("hash-only", "#/rules"),
     ("hash-bots", "#/bots"),
+    ("hash-about", "#/about"),
+    ("hash-legacy-engine", "#/engine"),
     ("cwn-no-hash", "?cwn=" + TEST_CWN),
     ("cwn-with-hash", "?cwn=" + TEST_CWN + "#/games"),
 ]

@@ -12,12 +12,10 @@ the fixture was testing a DOM that doesn't exist in production.
 
 This makes every fixture provably identical to the live page except for its
 own appended script, and turns "fixture is stale" from a silent, discovered-
-by-accident problem into "re-run this after any index.html change" - a
-90-line index.html has a single bare `<script>` tag as the very first line
-of any fixture's driver (index.html's OWN script tags all carry a src=
-attribute, so a bare one only ever marks where a fixture's test code
-begins) - that's the split point: everything before it, in the fixture, is
-disposable; everything from it onward is the actual test.
+by-accident problem into "re-run this after any index.html change". The
+fixture driver is the final bare `<script>` block; production may contain
+earlier inline scripts. Everything before that final block is disposable and
+everything from it onward is the test.
 
 Usage:
     python -m colourwars.tests.regen_browser_fixtures                 # all fixtures
@@ -55,14 +53,18 @@ FIXTURES = [
     "browser_theme_toggle_test.html",
 ]
 
-DRIVER_MARKER = "<script>"  # bare - never how index.html writes its own script tags
+# The appended fixture driver is always the final bare script. Production may
+# legitimately contain earlier inline scripts (the pre-CSS theme bootstrap
+# does), so select from the end rather than assuming the first bare script is
+# test-only.
+DRIVER_MARKER = "<script>"
 
 
 def regenerate(fixture_name: str) -> None:
     fixture_path = os.path.join(REPO_ROOT, fixture_name)
     with open(fixture_path, encoding="utf-8") as f:
         old_content = f.read()
-    idx = old_content.index(DRIVER_MARKER)
+    idx = old_content.rindex(DRIVER_MARKER)
     driver_and_tail = old_content[idx:]
 
     with open(INDEX_HTML_PATH, encoding="utf-8") as f:

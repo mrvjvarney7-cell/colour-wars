@@ -9,16 +9,31 @@
   var POP_MS = 260;
 
   // ---------- Theme ----------
-  // Dark is the default (matches style.css's bare :root palette); light
-  // applies automatically when the OS prefers it, unless overridden here -
-  // an explicit choice is persisted so it sticks on the next visit. Applied
-  // as early as possible (top of this file, before any rendering) to avoid
-  // a flash of the wrong theme.
+  // One persisted choice resolves to a semantic token set in style.css.
+  // `system` follows OS light/dark changes live; legacy light/dark values
+  // from the old two-theme toggle are migrated without surprising users.
   var THEME_STORAGE_KEY = 'colourwars-theme';
   var themeToggleBtn = document.getElementById('theme-toggle-btn');
+  var themeColorMeta = document.getElementById('theme-color-meta');
+  var THEME_OPTIONS = [
+    { id: 'system', label: 'System', note: 'Follows this device', preview: ['#10141d', '#8292ff', '#f1f0eb'] },
+    { id: 'classic', label: 'Classic', note: 'Balanced and focused', preview: ['#10141d', '#202838', '#8292ff'] },
+    { id: 'night', label: 'Night', note: 'Low-light contrast', preview: ['#06080d', '#161c28', '#70a6ff'] },
+    { id: 'paper', label: 'Paper', note: 'Bright and crisp', preview: ['#f1f0eb', '#ffffff', '#4053c7'] },
+    { id: 'neon', label: 'Neon', note: 'Arcade energy', preview: ['#09051a', '#20133b', '#46e5ff'] },
+    { id: 'mono', label: 'Mono', note: 'Quiet and minimal', preview: ['#181818', '#292929', '#e4e4df'] }
+  ];
+  var THEME_META_COLORS = {
+    classic: '#10141d', night: '#06080d', paper: '#f1f0eb', neon: '#09051a', mono: '#181818'
+  };
 
   function getStoredTheme() {
-    try { return localStorage.getItem(THEME_STORAGE_KEY); } catch (e) { return null; }
+    try {
+      var stored = localStorage.getItem(THEME_STORAGE_KEY);
+      if (stored === 'dark') return 'night';
+      if (stored === 'light') return 'paper';
+      return THEME_OPTIONS.some(function (t) { return t.id === stored; }) ? stored : 'system';
+    } catch (e) { return 'system'; }
   }
   function setStoredTheme(theme) {
     try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch (e) { /* private mode etc. - just won't persist */ }
@@ -26,23 +41,41 @@
   function systemPrefersLight() {
     return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
   }
-  function applyTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
+  function resolveTheme(choice) {
+    return choice === 'system' ? (systemPrefersLight() ? 'paper' : 'classic') : choice;
+  }
+  function applyTheme(choice) {
+    var resolved = resolveTheme(choice);
+    document.documentElement.setAttribute('data-theme-choice', choice);
+    document.documentElement.setAttribute('data-theme', resolved);
+    if (themeColorMeta) themeColorMeta.setAttribute('content', THEME_META_COLORS[resolved]);
     if (themeToggleBtn) {
-      var switchTo = (theme === 'light') ? 'dark' : 'light';
-      themeToggleBtn.textContent = (switchTo === 'light') ? 'Light mode' : 'Dark mode';
-      themeToggleBtn.setAttribute('aria-label', 'Switch to ' + switchTo + ' theme');
+      var selectedTheme = THEME_OPTIONS.filter(function (t) { return t.id === choice; })[0];
+      themeToggleBtn.textContent = 'Theme · ' + selectedTheme.label;
+      themeToggleBtn.setAttribute('aria-label', 'Change theme. Current theme: ' + selectedTheme.label);
     }
   }
 
-  applyTheme(getStoredTheme() || (systemPrefersLight() ? 'light' : 'dark'));
+  applyTheme(getStoredTheme());
 
   if (themeToggleBtn) {
     themeToggleBtn.addEventListener('click', function () {
-      var next = (document.documentElement.getAttribute('data-theme') === 'light') ? 'dark' : 'light';
-      applyTheme(next);
-      setStoredTheme(next);
+      var current = document.documentElement.getAttribute('data-theme-choice') || 'system';
+      var index = THEME_OPTIONS.findIndex(function (t) { return t.id === current; });
+      var next = THEME_OPTIONS[(index + 1) % THEME_OPTIONS.length];
+      applyTheme(next.id);
+      setStoredTheme(next.id);
+      showToast(next.label + ' theme');
     });
+  }
+
+  if (window.matchMedia) {
+    var colourSchemeQuery = window.matchMedia('(prefers-color-scheme: light)');
+    var followSystemTheme = function () {
+      if (document.documentElement.getAttribute('data-theme-choice') === 'system') applyTheme('system');
+    };
+    if (colourSchemeQuery.addEventListener) colourSchemeQuery.addEventListener('change', followSystemTheme);
+    else if (colourSchemeQuery.addListener) colourSchemeQuery.addListener(followSystemTheme);
   }
 
   // ---------- AI opponent ----------
@@ -51,9 +84,9 @@
   // single human among AI opponents to a fully AI-vs-AI game. MCTS
   // simulations/move is a plain tradeoff between move strength and "AI is
   // thinking" wait time - tune here if needed.
-  var AI_SIMULATIONS = 60;
+  var AI_SIMULATIONS = 30;
   var THINKING_YIELD_MS = 50; // lets the "AI is thinking" indicator paint before the blocking search runs
-  var AI_INSIGHT_DISPLAY_MS = 1400; // how long the win% + considered moves stay visible before the move plays
+  var AI_INSIGHT_DISPLAY_MS = 900; // readable without making every AI turn feel artificially paused
   var AI_INSIGHT_TOP_N = 3; // how many candidate moves get a badge on the board
   var aiThinkingEl = document.getElementById('ai-thinking');
   var aiInsightEl = document.getElementById('ai-insight');
@@ -183,7 +216,7 @@
     // whatever game was in progress before the user navigated away from it.
     if (name === 'history') renderHistoryScreen(); // don't show stale data on a back/forward return to Games
     else if (name === 'bots') renderBotsScreen();
-    else if (name === 'engine') renderEngineScreen();
+    else if (name === 'engine') { /* About is static. */ }
     else if (name === 'settings') renderSettingsScreen();
     else if (name === 'home') renderHome();
     applyScreen(name);
@@ -438,7 +471,7 @@
   var aiInsightToggleInputEl = document.getElementById('ai-insight-toggle-input');
 
   // Checked by default (matches the feature's original always-on behaviour);
-  // unchecking skips the win%/considered-moves display, the pause that
+  // unchecking skips the search-summary display, the pause that
   // exists purely so there's time to read it (so turning this off also
   // makes AI turns noticeably faster), AND the "AI is thinking..." spinner
   // itself - there was no separate control for that, and it's the same
@@ -458,6 +491,8 @@
   var evalBarEl = document.getElementById('eval-bar');
   var evalBarFillEl = document.getElementById('eval-bar-fill');
   var evalBarLabelEl = document.getElementById('eval-bar-label');
+  var evalLeftPlayerEl = document.getElementById('eval-left-player');
+  var evalRightPlayerEl = document.getElementById('eval-right-player');
 
   var playerCountButtonsEl = document.getElementById('player-count-buttons');
   var playerListEl = document.getElementById('player-list');
@@ -558,7 +593,7 @@
       // leaving it stuck on its "loading" placeholder.
       var shown = currentScreenName();
       if (shown === 'bots') renderBotsScreen();
-      else if (shown === 'engine') renderEngineScreen();
+      else if (shown === 'engine') { /* About is static. */ }
       else if (shown === 'home') renderHome();
     })
     .catch(function () {
@@ -588,28 +623,6 @@
       });
   }
 
-  // v.measuredOnFixedHarness (set once by python -m colourwars.export_weights,
-  // see derive_version_info there) is true only if this checkpoint's Elo/win
-  // rate came from the 2p-paired, draw-scoring eval harness. Earlier
-  // promotions were measured on a harness later found to be structurally
-  // biased (deterministic games, effectively ~9 distinct outcomes, unfinished
-  // games silently discarded rather than scored as draws) - showing their Elo
-  // as a plain fact would ship a number that isn't one. false/undefined (an
-  // older exported version.json predating this field) are treated the same
-  // as each other - both mean "don't trust this Elo without a mark".
-  function formatEloForDisplay(v) {
-    if (typeof v.elo !== 'number') return '';
-    // preReset: this iteration was promoted before the 2026-08-29 Elo reset
-    // (see the "Elo was reset" note below the version picker) - its number
-    // here is 0 only because the old chain was discarded, not because it
-    // was actually average-strength, so show that plainly instead of a
-    // number that looks like real signal.
-    if (v.preReset === true) return ' · Elo: pre-reset (not comparable)';
-    return v.measuredOnFixedHarness === true
-      ? (' · Elo ' + Math.round(v.elo))
-      : (' · Elo ~' + Math.round(v.elo) + ' (provisional)');
-  }
-
   function anyAiSeatsInPlay() {
     return setup.players.slice(0, setup.numPlayers).some(function (p) { return p.isAI; });
   }
@@ -621,22 +634,9 @@
     return v && v.generationLabel ? v.generationLabel : ('I' + v.iteration);
   }
 
-  var eloResetNoteEl = document.getElementById('elo-reset-note');
-
   function updateAiInsightToggleVisibility() {
     var show = anyAiSeatsInPlay();
     if (aiInsightToggleEl) aiInsightToggleEl.classList.toggle('hidden', !show);
-    if (eloResetNoteEl) {
-      var resetIteration = window.AI_VERSION && window.AI_VERSION.eloChainResetIteration;
-      if (show && resetIteration != null) {
-        eloResetNoteEl.textContent = 'Elo was reset at iteration ' + resetIteration +
-          ' after fixing a broken evaluation system - older iterations show "not comparable" ' +
-          'instead of an Elo on the same scale as newer ones.';
-        eloResetNoteEl.classList.remove('hidden');
-      } else {
-        eloResetNoteEl.classList.add('hidden');
-      }
-    }
   }
 
   // Options for one player's version <select>: "Latest" (the eagerly-loaded
@@ -680,16 +680,14 @@
   function buildVersionOptions() {
     var opts = [];
     if (defaultIteration != null) {
-      var defInfo = versionInfoByIteration[defaultIteration] || {};
-      opts.push({ value: '', label: 'Latest (iteration ' + defaultIteration + ')' + formatEloForDisplay(defInfo) });
+      var defInfo = versionInfoByIteration[defaultIteration] || { iteration: defaultIteration };
+      opts.push({ value: '', label: 'Production · ' + versionPublicLabel(defInfo) + ' · Recommended' });
     }
     var ladder = ladderVersionsAscending();
     ladder.forEach(function (v, rank) {
       var tier = botTierForRank(rank);
-      var label = versionPublicLabel(v) + ' · ' + tier.avatar + ' ' + tier.name + formatEloForDisplay(v);
-      if (typeof v.winRateVsRandom === 'number') {
-        label += ' · ' + Math.round(v.winRateVsRandom * 100) + '% vs random';
-      }
+      var difficulty = Math.max(1, Math.round(((rank + 1) / Math.max(ladder.length, 1)) * 5));
+      var label = versionPublicLabel(v) + ' · ' + tier.avatar + ' ' + tier.name + ' · Difficulty ' + difficulty + '/5';
       opts.push({ value: String(v.iteration), label: label });
     });
     return opts;
@@ -777,11 +775,27 @@
       name.textContent = v.generationLabel ? v.generationLabel : (v.iteration === defaultIteration ? 'Production' : tier.name);
       body.appendChild(name);
 
+      if (v.iteration === defaultIteration) {
+        var recommended = document.createElement('span');
+        recommended.className = 'bot-card-recommended';
+        recommended.textContent = 'Recommended';
+        body.appendChild(recommended);
+      }
+
       var meta = document.createElement('div');
       meta.className = 'bot-card-meta';
       var difficulty = Math.max(1, Math.round(((rank + 1) / ladder.length) * 5));
       meta.textContent = 'Difficulty ' + difficulty + ' of 5 · ' + versionPublicLabel(v);
       body.appendChild(meta);
+
+      var description = document.createElement('div');
+      description.className = 'bot-card-description';
+      description.textContent = difficulty <= 1 ? 'A forgiving opponent for learning chain reactions.'
+        : difficulty <= 2 ? 'Steady play with room to experiment.'
+        : difficulty <= 3 ? 'A balanced tactical challenge.'
+        : difficulty <= 4 ? 'Punishes loose positions and missed chains.'
+        : 'The toughest available test of your board control.';
+      body.appendChild(description);
 
       var record = stats.byBot[String(v.iteration)];
       if (record) {
@@ -825,94 +839,6 @@
 
   // ---------- About screen ----------
   var backFromEngineBtn = document.getElementById('back-from-engine-btn');
-
-  // Builds a small inline SVG line chart from availableVersions (the same
-  // js/ai/versions/index.json already fetched for the setup screen's
-  // version picker) - no charting library, just enough geometry for a
-  // dozen-ish points. Pre-reset iterations are drawn as their own flat,
-  // dashed run rather than joined to the real curve: their Elo is 0 only
-  // because the old chain was discarded (see formatEloForDisplay's
-  // comment), not a real measurement on the same scale, so a connecting
-  // line there would present a discontinuity as if it were comparable data.
-  function buildEloChartSvg(points) {
-    var W = 600, H = 200, padL = 8, padR = 8, padT = 14, padB = 14;
-    var preReset = points.filter(function (p) { return p.preReset; });
-    var postReset = points.filter(function (p) { return !p.preReset; });
-    var xs = points.map(function (p) { return p.iteration; });
-    var minX = Math.min.apply(null, xs);
-    var maxX = Math.max.apply(null, xs);
-    function xScale(it) {
-      return maxX === minX ? (padL + (W - padL - padR) / 2) : padL + (it - minX) / (maxX - minX) * (W - padL - padR);
-    }
-
-    var parts = [];
-    var baselineY = H - padB;
-
-    if (preReset.length > 0) {
-      var preXs = preReset.map(function (p) { return xScale(p.iteration); });
-      parts.push('<line x1="' + Math.min.apply(null, preXs) + '" y1="' + baselineY + '" x2="' + Math.max.apply(null, preXs) +
-        '" y2="' + baselineY + '" stroke="var(--text-dim)" stroke-width="1.5" stroke-dasharray="3,4" />');
-      preXs.forEach(function (x) {
-        parts.push('<circle cx="' + x + '" cy="' + baselineY + '" r="3" fill="var(--text-dim)" />');
-      });
-    }
-
-    if (postReset.length > 0) {
-      var elos = postReset.map(function (p) { return p.elo; });
-      var minY = Math.min.apply(null, elos);
-      var maxY = Math.max.apply(null, elos);
-      if (minY === maxY) { minY -= 50; maxY += 50; }
-      var yScale = function (elo) {
-        return (H - padB) - (elo - minY) / (maxY - minY) * (H - padT - padB);
-      };
-      if (preReset.length > 0) {
-        var gapX = (xScale(preReset[preReset.length - 1].iteration) + xScale(postReset[0].iteration)) / 2;
-        parts.push('<line x1="' + gapX + '" y1="' + padT + '" x2="' + gapX + '" y2="' + (H - padB) +
-          '" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="2,3" />');
-      }
-      var pathD = postReset.map(function (p, i) {
-        return (i === 0 ? 'M' : 'L') + xScale(p.iteration) + ',' + yScale(p.elo);
-      }).join(' ');
-      parts.push('<path d="' + pathD + '" fill="none" stroke="var(--accent)" stroke-width="2.5" />');
-      postReset.forEach(function (p) {
-        parts.push('<circle cx="' + xScale(p.iteration) + '" cy="' + yScale(p.elo) + '" r="3.5" fill="var(--accent)"' +
-          (p.measuredOnFixedHarness ? '' : ' opacity="0.55"') + ' />');
-      });
-    }
-
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="elo-chart-svg" role="img" aria-label="Elo across promoted iterations">' +
-      parts.join('') + '</svg>';
-  }
-
-  function renderEngineScreen() {
-    if (!engineChartEl) return;
-    var points = availableVersions.slice().sort(function (a, b) { return a.iteration - b.iteration; });
-    if (points.length === 0) {
-      engineChartEl.innerHTML = '<div class="history-empty">Loading version history...</div>';
-      if (engineStatsPanelEl) engineStatsPanelEl.innerHTML = '';
-      return;
-    }
-    engineChartEl.innerHTML = buildEloChartSvg(points);
-
-    if (engineStatsPanelEl) {
-      engineStatsPanelEl.innerHTML = '';
-      var latest = points[points.length - 1];
-      var resetIteration = window.AI_VERSION && window.AI_VERSION.eloChainResetIteration;
-      var lines = [
-        'Promoted iterations: ' + points.length,
-        'Latest: iteration ' + latest.iteration + formatEloForDisplay(latest)
-      ];
-      if (resetIteration != null) {
-        lines.push('Elo reset at iteration ' + resetIteration + ' - earlier iterations are the separate, dashed run above, not part of the continuous curve.');
-      }
-      lines.forEach(function (line) {
-        var row = document.createElement('div');
-        row.className = 'stat-line';
-        row.textContent = line;
-        engineStatsPanelEl.appendChild(row);
-      });
-    }
-  }
 
   function openEngine() {
     return showScreen('engine');
@@ -1275,28 +1201,29 @@
   }
 
   // ---------- Quick position analysis (no search) ----------
-  // One NN.forward() call on the LIVE position - shared groundwork for T3's
-  // heatmap here and T1's eval bar (next). Deliberately always uses the
+  // One deterministic NN.forward() call on a completed position, shared by
+  // the move suggestion overlay and the position estimate. This is the raw
+  // value head's bounded opinion, NOT a calibrated win probability. It uses
+  // the bundled production evaluator and performs no MCTS, sampling, noise,
+  // temperature, or async work. Deliberately always uses the
   // DEFAULT bundled network (window.AI_WEIGHTS), not whichever checkpoint an
   // AI opponent happens to be playing with (see the per-seat AI version
   // picker) - this is a neutral analysis engine available in every game,
   // including human-vs-human, the same way a chess site's eval bar isn't
-  // tied to whatever bot you chose to play against. Only covers the LIVE
-  // position, not a browsed-history frame - boardHistory only stores board
-  // snapshots, not the mover/hasMoved bookkeeping encodeState also needs.
-  // targetState defaults to the live game, but Analysis mode passes a
-  // specific stateHistory[i] instead - a real GameState either way (the
-  // caller is responsible for that; see renderAnalysis).
+  // tied to whatever bot you chose to play against. Full state snapshots
+  // let history review show the estimate for the board actually on screen.
   function computeQuickAnalysis(targetState) {
     targetState = targetState || state;
     if (!targetState || targetState.gameOver) return null;
     var encoded = Encode.encodeState(targetState);
     var out = NeuralNet.forward(encoded, window.AI_WEIGHTS);
-    var mover = targetState.currentPlayerIndex;
+    var perm = Encode.relativeOwnerPerm(targetState);
+    var absoluteValues = [];
+    for (var pid = 0; pid < targetState.players.length; pid++) absoluteValues[pid] = out.value[perm[pid]];
     return {
-      winProbability: (out.value[mover] + 1) / 2,
+      values: absoluteValues,
       policy: MCTS.maskedPolicy(targetState, out.policyLogits),
-      moverColor: playerColor(mover)
+      state: targetState
     };
   }
 
@@ -1336,33 +1263,52 @@
 
   function renderEvalBarFrom(analysis) {
     if (!evalBarEl) return;
-    if (!analysis) {
+    if (!analysis || analysis.state.players.length !== 2) {
       evalBarEl.classList.add('hidden');
       evalBarEl.setAttribute('aria-hidden', 'true');
       return;
     }
     evalBarEl.classList.remove('hidden');
     evalBarEl.setAttribute('aria-hidden', 'false');
-    var pct = Math.round((analysis.winProbability * 100) / 5) * 5;
-    evalBarFillEl.style.height = pct + '%';
-    evalBarFillEl.style.setProperty('--eval-bar-color', analysis.moverColor);
-    evalBarLabelEl.textContent = '~' + pct + '%';
-    evalBarEl.setAttribute('aria-label', 'Position estimate for ' + state.players[state.currentPlayerIndex].name + ': about ' + pct + ' percent');
+    var players = analysis.state.players;
+    var gap = Math.max(-1, Math.min(1, (analysis.values[0] - analysis.values[1]) / 2));
+    var magnitude = Math.abs(gap);
+    var leader = gap > 0 ? 0 : 1;
+    var label;
+    if (magnitude < 0.10) label = 'Even position';
+    else if (magnitude < 0.28) label = 'Slight edge — ' + players[leader].name;
+    else if (magnitude < 0.55) label = 'Clear edge — ' + players[leader].name;
+    else label = 'Strong edge — ' + players[leader].name;
+
+    var markerPosition = 50 - gap * 42;
+    var markerColor = magnitude < 0.10 ? 'var(--text-dim)' : players[leader].color;
+    evalBarEl.style.setProperty('--eval-left-color', players[0].color);
+    evalBarEl.style.setProperty('--eval-right-color', players[1].color);
+    evalBarEl.style.setProperty('--eval-position', markerPosition + '%');
+    evalBarEl.style.setProperty('--eval-marker-color', markerColor);
+    evalBarEl.dataset.estimate = magnitude < 0.10 ? 'even' : (magnitude < 0.28 ? 'slight' : (magnitude < 0.55 ? 'clear' : 'strong'));
+    evalBarLabelEl.textContent = label;
+    evalLeftPlayerEl.textContent = players[0].name;
+    evalRightPlayerEl.textContent = players[1].name;
+    evalBarEl.setAttribute('aria-label', 'Position estimate: ' + label + '. Approximate model opinion, not a win probability.');
   }
 
   // Single entry point: computes the (possibly expensive-ish, though this
   // network is tiny) forward pass ONCE and feeds both T1 (eval bar) and T3
   // (policy heatmap) from it, rather than each recomputing independently.
-  // Normal play/puzzle mode only show this for the live position - a
-  // browsed-history frame is read-only there, and showing "live" analysis
-  // for it would misleadingly imply it's the position actually in play.
-  // Analysis mode (T-Analysis) is different on purpose: there's no "live"
-  // game to defer to, browsing IS the whole point, so every browsed
-  // position gets its own live analysis from stateHistory[viewIndex].
+  var quickAnalysisCache = [];
+
+  // Evaluation is computed only after a complete logical move/cascade and
+  // cached by history index. Browsing never displays the live board's value
+  // beside an old board, and returning to a position never repeats inference.
   function renderAnalysis() {
-    var targetState = inAnalysisMode ? stateHistory[viewIndex] : state;
-    var canAnalyse = inAnalysisMode ? !!targetState : (state && !state.gameOver && isViewingLive());
-    var analysis = canAnalyse ? computeQuickAnalysis(targetState) : null;
+    var targetState = stateHistory[viewIndex] || (isViewingLive() ? state : null);
+    var canAnalyse = !!(targetState && !targetState.gameOver);
+    var analysis = null;
+    if (canAnalyse) {
+      if (!quickAnalysisCache[viewIndex]) quickAnalysisCache[viewIndex] = computeQuickAnalysis(targetState);
+      analysis = quickAnalysisCache[viewIndex];
+    }
     renderEvalBarFrom(analysis);
     renderPolicyHeatmapFrom(analysis);
   }
@@ -1373,29 +1319,27 @@
   // positions, each evaluated once here (see runGameReview).
   var REVIEW_SIMULATIONS = 30;
 
-  // Thresholds are in win-probability PERCENTAGE POINTS lost, from the
-  // mover's own equity just before their move to their own equity just
+  // Thresholds are changes in the normalized model score, from the mover's
+  // own estimate just before their move to their own estimate just
   // after it (both from the same fixed default-network search, so every
   // move in a review is judged by the same referee regardless of which
-  // checkpoint actually played it). Chosen as round, chess.com/lichess-
-  // flavoured numbers, not calibrated against this specific game's actual
-  // swing distribution - a reasonable starting point, easy to retune once
-  // real reviewed games show whether they're too strict/lax in practice.
+  // checkpoint actually played it). They are deliberately broad, round
+  // buckets rather than claims about objective move quality.
   var REVIEW_THRESHOLDS = [
-    { max: 0.02, label: 'best' },
-    { max: 0.08, label: 'inaccuracy' },
-    { max: 0.20, label: 'mistake' },
-    { max: Infinity, label: 'blunder' }
+    { max: 0.02, label: 'stable' },
+    { max: 0.08, label: 'small-shift' },
+    { max: 0.20, label: 'notable-shift' },
+    { max: Infinity, label: 'major-shift' }
   ];
 
   function classifyDrop(drop) {
     for (var i = 0; i < REVIEW_THRESHOLDS.length; i++) {
       if (drop <= REVIEW_THRESHOLDS[i].max) return REVIEW_THRESHOLDS[i].label;
     }
-    return 'blunder';
+    return 'major-shift';
   }
 
-  // Full-game, absolute-player-id-indexed win probability from one search -
+  // Full-game, absolute-player-id-indexed normalized model score from one search -
   // rootInsight() only gives the CURRENT mover's value; a move's "after"
   // evaluation needs the MOVER's value in a position where it's no longer
   // their turn, so this reads straight from the root node instead.
@@ -1414,7 +1358,7 @@
   // Replays the just-finished (or just-loaded) game from gameStartCwn move
   // by move - same replay mechanism as T6/T7 - evaluating each position
   // ONCE (N+1 evaluations for an N-move game, not 2N) and deriving each
-  // move's win-probability drop from two consecutive evaluations. Runs
+  // move's model-score swing from two consecutive evaluations. Runs
   // asynchronously (one setTimeout-yielded position at a time) so a search
   // taking real wall-clock time per position doesn't freeze the page, and
   // shows progress since a full game can take a while at REVIEW_SIMULATIONS.
@@ -1692,7 +1636,7 @@
           if (moveReviewData && moveReviewData[idx]) {
             var badge = document.createElement('span');
             badge.className = 'move-quality move-quality-' + moveReviewData[idx].label;
-            badge.title = moveReviewData[idx].label + ' (' + Math.round(moveReviewData[idx].drop * 100) + 'pp win% drop)';
+            badge.title = moveReviewData[idx].label.replace('-', ' ') + ' (' + Math.round(moveReviewData[idx].drop * 100) + '-point model swing)';
             cell.appendChild(badge);
           }
           if (boardIdx === viewIndex) cell.classList.add('viewing');
@@ -1930,23 +1874,25 @@
     commitMove(r, c);
   }
 
-  // Shows the AI's own estimate of its win chances (the MCTS root's backed-up
-  // Q-value for the mover, remapped from [-1,1] to a 0-100% "how much it
-  // fancies its odds") and badges the top few candidate moves by visit share
-  // - the moves the search spent the most simulations exploring, i.e. what
-  // it seriously considered before settling on its actual choice.
+  // Shows a coarse summary of the AI's backed-up MCTS root value and ranks
+  // the candidate moves it spent the most simulations exploring.
   function renderAiInsight(insight, chosenAction) {
-    var pct = insight.winProbability !== null ? Math.round(insight.winProbability * 100) : null;
-    aiInsightEl.textContent = (pct !== null) ? ('AI: ' + pct + '% chance') : 'AI: evaluating…';
+    var edge = insight.winProbability !== null ? Math.abs(insight.winProbability * 2 - 1) : null;
+    var wording = 'evaluating';
+    if (edge !== null && edge < 0.10) wording = 'sees an even position';
+    else if (edge !== null && edge < 0.28) wording = 'sees a slight edge';
+    else if (edge !== null && edge < 0.55) wording = 'sees a clear edge';
+    else if (edge !== null) wording = 'sees a strong edge';
+    aiInsightEl.textContent = 'AI ' + wording;
     aiInsightEl.classList.remove('hidden');
 
     var cols = state.cols;
-    insight.moves.slice(0, AI_INSIGHT_TOP_N).forEach(function (m) {
+    insight.moves.slice(0, AI_INSIGHT_TOP_N).forEach(function (m, rank) {
       var r = Math.floor(m.action / cols);
       var c = m.action % cols;
       var badge = document.createElement('div');
       badge.className = 'ai-candidate-badge' + (m.action === chosenAction ? ' chosen' : '');
-      badge.textContent = Math.round(m.share * 100) + '%';
+      badge.textContent = m.action === chosenAction ? '✓' : String(rank + 1);
       cellEls[r][c].appendChild(badge);
     });
   }
@@ -1961,7 +1907,7 @@
   // If it's currently an AI seat's turn, shows the "thinking" indicator,
   // yields to the browser so it actually paints before the blocking search
   // runs, then computes the AI's move. Rather than playing it immediately,
-  // shows its win-chance estimate and considered moves for a beat so
+  // shows its coarse search summary and considered moves for a beat so
   // there's actually time to read them, then plays the move through the
   // same commitMove() path a human click uses. Recurses via commitMove's own
   // post-move check, so a run of consecutive AI seats (3p/4p games) plays
@@ -2083,6 +2029,7 @@
     state = game;
     boardHistory = [state.board];
     stateHistory = [state];
+    quickAnalysisCache = [];
     moveList = [];
     viewIndex = 0;
     gameStartCwn = GL.encodeCwn(state);
@@ -2304,8 +2251,8 @@
   var POLICY_HEATMAP_DEFAULT_KEY = 'colourwars-policy-heatmap-default';
 
   var THINK_TIME_PRESETS = [
-    { id: 'fast', label: 'Fast', simulations: 30 },
-    { id: 'normal', label: 'Normal', simulations: 60 },
+    { id: 'fast', label: 'Fast', simulations: 15 },
+    { id: 'normal', label: 'Normal', simulations: 30 },
     { id: 'strong', label: 'Strong', simulations: 150 }
   ];
 
@@ -2320,7 +2267,7 @@
     try { localStorage.setItem(AI_SIMULATIONS_KEY, String(sims)); } catch (e) { /* private mode etc. */ }
   }
 
-  // AI_SIMULATIONS (declared near the top of this file, default 60) is a
+  // AI_SIMULATIONS (declared near the top of this file, default 30) is a
   // plain var read at the moment each AI turn actually searches -
   // reassigning it here (and again live from this screen below) takes
   // effect on the very next AI move, no reload or restart needed.
@@ -2355,21 +2302,41 @@
   var clearLocalDataBtn = document.getElementById('clear-local-data-btn');
   var backFromSettingsBtn = document.getElementById('back-from-settings-btn');
 
-  var THEME_OPTIONS = [{ id: 'dark', label: 'Dark' }, { id: 'light', label: 'Light' }];
-
   function renderSettingsThemeButtons() {
     if (!settingsThemeButtonsEl) return;
     settingsThemeButtonsEl.innerHTML = '';
-    var current = document.documentElement.getAttribute('data-theme') || 'dark';
-    THEME_OPTIONS.forEach(function (opt) {
+    var current = document.documentElement.getAttribute('data-theme-choice') || 'system';
+    THEME_OPTIONS.forEach(function (opt, index) {
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = opt.label;
-      if (opt.id === current) btn.classList.add('active');
+      btn.className = 'theme-choice';
+      btn.setAttribute('role', 'radio');
+      btn.setAttribute('aria-checked', opt.id === current ? 'true' : 'false');
+      btn.setAttribute('aria-label', opt.label + ': ' + opt.note);
+      btn.tabIndex = opt.id === current ? 0 : -1;
+      btn.innerHTML = '<span class="theme-choice-name"></span><span class="theme-choice-note"></span><span class="theme-swatches" aria-hidden="true"></span>';
+      btn.querySelector('.theme-choice-name').textContent = opt.label;
+      btn.querySelector('.theme-choice-note').textContent = opt.note;
+      var swatches = btn.querySelector('.theme-swatches');
+      opt.preview.forEach(function (color) {
+        var swatch = document.createElement('i');
+        swatch.style.setProperty('--preview-color', color);
+        swatches.appendChild(swatch);
+      });
       btn.addEventListener('click', function () {
         applyTheme(opt.id);
         setStoredTheme(opt.id);
         renderSettingsThemeButtons();
+      });
+      btn.addEventListener('keydown', function (event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        event.preventDefault();
+        var delta = (event.key === 'ArrowLeft' || event.key === 'ArrowUp') ? -1 : 1;
+        var next = (index + delta + THEME_OPTIONS.length) % THEME_OPTIONS.length;
+        applyTheme(THEME_OPTIONS[next].id);
+        setStoredTheme(THEME_OPTIONS[next].id);
+        renderSettingsThemeButtons();
+        settingsThemeButtonsEl.children[next].focus();
       });
       settingsThemeButtonsEl.appendChild(btn);
     });
@@ -2476,6 +2443,7 @@
     state = decoded;
     boardHistory = [state.board];
     stateHistory = [state];
+    quickAnalysisCache = [];
     moveList = [];
     viewIndex = 0;
     gameStartCwn = puzzle.cwn;
@@ -2576,6 +2544,7 @@
     state = decoded;
     boardHistory = [state.board];
     stateHistory = [state];
+    quickAnalysisCache = [];
     moveList = [];
     viewIndex = 0;
     gameStartCwn = cwn;
@@ -2677,6 +2646,7 @@
     // a single position) - [state] is the correct (and only sensible)
     // one-entry history there too.
     stateHistory = replay.stateHistory || [replay.state];
+    quickAnalysisCache = [];
     moveList = replay.moveList;
     viewIndex = boardHistory.length - 1;
     gameStartCwn = replay.startCwn;
@@ -2890,7 +2860,7 @@
     var initialScreen = SCREEN_FOR_ROUTE[initialRoute];
     if (initialScreen === 'history') { renderHistoryScreen(); applyScreen('history'); }
     else if (initialScreen === 'bots') { renderBotsScreen(); applyScreen('bots'); }
-    else if (initialScreen === 'engine') { renderEngineScreen(); applyScreen('engine'); }
+    else if (initialScreen === 'engine') applyScreen('engine');
     else if (initialScreen === 'settings') { renderSettingsScreen(); applyScreen('settings'); }
     else if (initialScreen) applyScreen(initialScreen); // rules/home/setup/game - no extra render step needed
   }

@@ -42,7 +42,7 @@ def main():
     print(f"In-page performance.now() measurement: {data}")
     print(f"External wall-clock for the whole headless run "
           f"(includes browser startup + {data['repeats']} AI moves): {wall_clock:.1f}s")
-    print(f"\n-> ~{data['perMoveMs']:.0f}ms per AI move at 60 MCTS simulations "
+    print(f"\n-> ~{data['perMoveMs']:.0f}ms per AI move at 30 MCTS simulations "
           f"(the default configured in js/ui.js's AI_SIMULATIONS).")
     return 0
 

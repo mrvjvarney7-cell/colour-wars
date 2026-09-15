@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0e14">
+<meta name="theme-color" id="theme-color-meta" content="#10141d">
 <meta name="description" content="Colour Wars is a competitive 7×7 chain-reaction strategy game for people and playable AI opponents.">
 <!-- GitHub Pages sends Cache-Control: max-age=600 on this file, and it has
      no cache-buster of its own (unlike style.css/js, which carry ?v=N) -
@@ -14,7 +14,22 @@
 <!-- ?v= is a cache buster: GitHub Pages serves these with Cache-Control: max-age=600,
      and mobile browsers often keep serving a cached copy even after a manual
      refresh. Bump the number whenever style.css or the js/ files change. -->
-<link rel="stylesheet" href="style.css?v=60">
+<script id="theme-bootstrap">
+  (function () {
+    try {
+      var choice = localStorage.getItem('colourwars-theme') || 'system';
+      if (choice === 'dark') choice = 'night';
+      if (choice === 'light') choice = 'paper';
+      if (['system', 'classic', 'night', 'paper', 'neon', 'mono'].indexOf(choice) === -1) choice = 'system';
+      var resolved = choice === 'system'
+        ? (matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'classic')
+        : choice;
+      document.documentElement.dataset.themeChoice = choice;
+      document.documentElement.dataset.theme = resolved;
+    } catch (e) { document.documentElement.dataset.theme = 'classic'; }
+  })();
+</script>
+<link rel="stylesheet" href="style.css?v=61">
 </head>
 <body>
 
@@ -67,7 +82,7 @@
       <button id="share-btn" class="nav-action-btn" type="button" aria-label="Copy a link to this position" title="Share this position">Share</button>
       <button id="export-game-btn" class="nav-action-btn" type="button" aria-label="Export this game">Export</button>
       <button id="import-game-btn" class="nav-action-btn" type="button" aria-label="Import a game">Import</button>
-      <button id="theme-toggle-btn" class="nav-action-btn" type="button" aria-label="Switch to light theme">Light mode</button>
+      <button id="theme-toggle-btn" class="nav-action-btn" type="button" aria-label="Open appearance settings">Theme</button>
     </div>
 
     <!-- Version label, not tied to the ?v= cache-buster number (that still
@@ -169,11 +184,6 @@
               <input type="checkbox" id="ai-insight-toggle-input" checked>
               Show opponent thinking and move hints
             </label>
-            <!-- Only shown once we know an elo_chain_reset actually happened
-                 (see window.AI_VERSION.eloChainResetIteration) - explains why
-                 the Elo next to some AI opponents jumps or reads "not
-                 comparable" instead of being one continuous number. -->
-            <p class="elo-reset-note hidden" id="elo-reset-note"></p>
           </div>
 
           <div class="field">
@@ -296,8 +306,9 @@
           <h1 class="title">Settings</h1>
 
           <div class="field">
-            <div class="field-label">Theme</div>
-            <div id="settings-theme-buttons" class="segmented cols-2"></div>
+            <div class="field-label">Appearance</div>
+            <p class="field-help">Choose a look for this device. Player colours stay consistent in every theme.</p>
+            <div id="settings-theme-buttons" class="theme-picker" role="radiogroup" aria-label="Colour theme"></div>
           </div>
 
           <div class="field">
@@ -352,18 +363,26 @@
             <div class="players-strip" id="players-strip"></div>
             <div class="stats-panel" id="stats-panel"></div>
 
-            <div class="board-row">
-              <!-- Value head's win probability for the side to move, no search -
-                   a neutral analysis engine (window.AI_WEIGHTS), same as the
-                   policy heatmap above, not tied to any AI opponent's own
-                   checkpoint. Hidden whenever there's nothing to show it for
-                   (no game, game over, browsing move history). -->
-              <div class="eval-bar hidden" id="eval-bar" aria-hidden="true">
-                <span class="eval-bar-label" id="eval-bar-label"></span>
-                <div class="eval-bar-track">
-                  <div class="eval-bar-fill" id="eval-bar-fill"></div>
-                </div>
+            <section class="position-estimate hidden" id="eval-bar" aria-hidden="true" aria-live="polite">
+              <div class="position-estimate-heading">
+                <span class="position-estimate-kicker">Position estimate</span>
+                <strong id="eval-bar-label">Even</strong>
               </div>
+              <div class="advantage-track" id="eval-bar-track">
+                <span class="advantage-centre" aria-hidden="true"></span>
+                <span class="advantage-marker" id="eval-bar-fill" aria-hidden="true"></span>
+              </div>
+              <div class="advantage-sides" aria-hidden="true">
+                <span id="eval-left-player">Player 1</span>
+                <span id="eval-right-player">Player 2</span>
+              </div>
+              <details class="estimate-help">
+                <summary>What does this mean?</summary>
+                <p>An approximate comparison from the built-in position evaluator. It is a model opinion, not a win probability or a guarantee.</p>
+              </details>
+            </section>
+
+            <div class="board-row">
               <div class="board-wrap">
               <div class="board" id="board" role="group" aria-label="Colour Wars board"></div>
                 <div class="fx-layer" id="fx-layer"></div>
@@ -392,12 +411,12 @@
     </div>
   </div>
 
-  <script src="js/gameLogic.js?v=60"></script>
-  <script src="js/ai/encode.js?v=60"></script>
-  <script src="js/ai/network.js?v=60"></script>
-  <script src="js/ai/mcts.js?v=60"></script>
-  <script src="js/ai/weights.js?v=60"></script>
-  <script src="js/ui.js?v=60"></script>
+  <script src="js/gameLogic.js?v=61"></script>
+  <script src="js/ai/encode.js?v=61"></script>
+  <script src="js/ai/network.js?v=61"></script>
+  <script src="js/ai/mcts.js?v=61"></script>
+  <script src="js/ai/weights.js?v=61"></script>
+  <script src="js/ui.js?v=61"></script>
 <script>
     (function () {
       'use strict';
@@ -412,13 +431,15 @@
 
       function readBar() {
         var el = document.getElementById('eval-bar');
-        var fill = document.getElementById('eval-bar-fill');
         var label = document.getElementById('eval-bar-label');
         return {
           hidden: el.classList.contains('hidden'),
-          heightPct: parseFloat(fill.style.height),
+          position: parseFloat(el.style.getPropertyValue('--eval-position')),
           labelText: label.textContent,
-          color: fill.style.getPropertyValue('--eval-bar-color')
+          estimate: el.dataset.estimate,
+          left: document.getElementById('eval-left-player').textContent,
+          right: document.getElementById('eval-right-player').textContent,
+          aria: el.getAttribute('aria-label')
         };
       }
 
@@ -429,47 +450,51 @@
         var hiddenBeforeStartCheck = { ok: beforeStart.hidden === true };
         if (!hiddenBeforeStartCheck.ok) hiddenBeforeStartCheck.reason = 'expected eval bar hidden before Start Game, got ' + JSON.stringify(beforeStart);
 
+        var realForward = NeuralNet.forward;
+        var forwardCalls = 0;
+        NeuralNet.forward = function (encoded, weights) {
+          forwardCalls++;
+          var out = realForward(encoded, weights);
+          out.value = new Float32Array([0.8, -0.4, 0, 0]);
+          return out;
+        };
+
         document.getElementById('start-game-btn').click(); // default 2p human-vs-human
 
         setTimeout(function () {
           var p1 = readBar();
-          var p1Check = { ok: true };
-          if (p1.hidden) {
-            p1Check = { ok: false, reason: 'expected eval bar visible once a game is live' };
-          } else if (isNaN(p1.heightPct) || p1.heightPct < 0 || p1.heightPct > 100) {
-            p1Check = { ok: false, reason: 'fill height out of [0,100] range: ' + p1.heightPct };
-          } else if (!/^~\d+%$/.test(p1.labelText)) {
-            p1Check = { ok: false, reason: 'expected an approximate "~N%" label, got "' + p1.labelText + '"' };
-          } else if ('~' + Math.round(p1.heightPct) + '%' !== p1.labelText) {
-            p1Check = { ok: false, reason: 'label (' + p1.labelText + ') should match fill height (' + p1.heightPct + '%)' };
-          } else if (!p1.color) {
-            p1Check = { ok: false, reason: 'expected --eval-bar-color to be set to the mover\'s colour' };
-          }
+          var p1Check = { ok: !p1.hidden && p1.position < 50 && p1.labelText.indexOf('Strong edge') === 0 && p1.labelText.indexOf('Player 1') !== -1 &&
+            p1.left === 'Player 1' && p1.right === 'Player 2' && p1.labelText.indexOf('%') === -1 &&
+            p1.aria.indexOf('not a win probability') !== -1 };
+          if (!p1Check.ok) p1Check.reason = 'unexpected fixed-player estimate: ' + JSON.stringify(p1);
 
           // P1 opens - turn passes to P2, whose colour should now drive the bar.
           document.querySelector('.cell[data-row="3"][data-col="3"]').click();
 
           setTimeout(function () {
             var p2 = readBar();
-            var colorChangedCheck = { ok: p2.color !== p1.color };
-            if (!colorChangedCheck.ok) colorChangedCheck.reason = 'expected --eval-bar-color to change once the mover changed, both were ' + p1.color;
+            var callsAfterMove = forwardCalls;
+            var perspectiveCheck = { ok: p2.position > 50 && p2.labelText.indexOf('Player 2') !== -1 && p2.left === p1.left && p2.right === p1.right };
+            if (!perspectiveCheck.ok) perspectiveCheck.reason = 'relative output was not mapped back to fixed players: ' + JSON.stringify({ before: p1, after: p2 });
 
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
-            var duringBrowseCheck = { ok: readBar().hidden === true };
-            if (!duringBrowseCheck.ok) duringBrowseCheck.reason = 'expected eval bar hidden while browsing history, got ' + JSON.stringify(readBar());
+            var historical = readBar();
+            var duringBrowseCheck = { ok: !historical.hidden && historical.labelText === p1.labelText && forwardCalls === callsAfterMove };
+            if (!duringBrowseCheck.ok) duringBrowseCheck.reason = 'historical position did not use its cached estimate: ' + JSON.stringify({ historical: historical, calls: forwardCalls });
 
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })); // back to live
-            var backToLiveCheck = { ok: readBar().hidden === false };
-            if (!backToLiveCheck.ok) backToLiveCheck.reason = 'expected eval bar to reappear back at the live position';
+            var backToLiveCheck = { ok: readBar().hidden === false && forwardCalls === callsAfterMove };
+            if (!backToLiveCheck.ok) backToLiveCheck.reason = 'returning live recomputed or hid estimate';
 
             report({
-              ok: errors.length === 0 && hiddenBeforeStartCheck.ok && p1Check.ok && colorChangedCheck.ok && duringBrowseCheck.ok && backToLiveCheck.ok,
+              ok: errors.length === 0 && hiddenBeforeStartCheck.ok && p1Check.ok && perspectiveCheck.ok && duringBrowseCheck.ok && backToLiveCheck.ok,
               errors: errors,
               hiddenBeforeStartCheck: hiddenBeforeStartCheck,
               p1Check: p1Check,
-              colorChangedCheck: colorChangedCheck,
+              perspectiveCheck: perspectiveCheck,
               duringBrowseCheck: duringBrowseCheck,
-              backToLiveCheck: backToLiveCheck
+              backToLiveCheck: backToLiveCheck,
+              forwardCalls: forwardCalls
             });
           }, 100);
         }, 100);
